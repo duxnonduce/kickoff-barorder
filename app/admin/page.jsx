@@ -10,7 +10,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kickoff-ordina.ver
 
 export default function AdminPage() {
   const [pin, setPin] = useState(null);
-  if (!pin) return <PinGate label="Pannello Admin" onUnlock={setPin} />;
+  if (!pin) return <PinGate label="Pannello Admin" role="admin" onUnlock={setPin} />;
   return <AdminDashboard pin={pin} />;
 }
 

@@ -16,7 +16,7 @@ const STATUS_LABEL = {
 export default function BarPage() {
   const [pin, setPin] = useState(null);
 
-  if (!pin) return <PinGate label="Dashboard Bar" onUnlock={setPin} />;
+  if (!pin) return <PinGate label="Dashboard Bar" role="bar" onUnlock={setPin} />;
   return <BarDashboard pin={pin} />;
 }
 

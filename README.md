@@ -18,8 +18,10 @@ stack di PointLab.
 ## 2. Configura le variabili d'ambiente
 
 Copia `.env.example` in `.env.local` e compila con i valori di Supabase.
-Scegli un `STAFF_PIN` (il codice che baristi/admin useranno per entrare
-in `/bar` e `/admin`).
+Scegli due PIN diversi:
+- `BAR_PIN` — dai ai baristi, funziona solo in `/bar` (accetta/rifiuta/pronto,
+  attiva/disattiva prodotti). Non apre `/admin`.
+- `ADMIN_PIN` — il tuo, funziona sia in `/admin` che in `/bar`.
 
 ## 3. Sviluppo locale
 
@@ -69,9 +71,9 @@ scontrino esce in automatico sulla stampante fisica.
 Questa è una prima versione pensata per partire in fretta, non ancora
 esattamente allo standard di PointLab:
 
-- **Autenticazione**: `/bar` e `/admin` usano un PIN condiviso semplice.
-  Come per PointLab, si può evolvere verso PIN individuali per staff con
-  ruoli (Super Operatore, ecc.).
+- **Autenticazione**: `/bar` e `/admin` usano due PIN condivisi (uno per
+  ruolo), non individuali. Come per PointLab, si può evolvere verso PIN
+  per singolo membro dello staff con ruoli (Super Operatore, ecc.).
 - **Anti no-show**: nessun limite ancora su "1 ordine attivo per cliente".
   Da aggiungere se diventa un problema reale.
 - **Notifiche**: il cliente vede lo stato aggiornarsi nella pagina aperta,

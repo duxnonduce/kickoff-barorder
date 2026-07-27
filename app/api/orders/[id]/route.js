@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin, checkStaffPin } from "@/lib/supabaseAdmin";
+import { supabaseAdmin, checkPin } from "@/lib/supabaseAdmin";
 
 export async function PATCH(req, { params }) {
   const { id } = params;
   const body = await req.json();
   const { status, pin } = body;
 
-  if (!checkStaffPin(pin)) {
+  if (!checkPin(pin, "bar")) {
     return NextResponse.json({ error: "PIN non valido" }, { status: 401 });
   }
 

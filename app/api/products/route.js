@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin, checkStaffPin } from "@/lib/supabaseAdmin";
+import { supabaseAdmin, checkPin } from "@/lib/supabaseAdmin";
 
 export async function POST(req) {
   const { pin, name, price, category_id, prep_min } = await req.json();
-  if (!checkStaffPin(pin)) {
+  if (!checkPin(pin, "admin")) {
     return NextResponse.json({ error: "PIN non valido" }, { status: 401 });
   }
   if (!name || price == null) {

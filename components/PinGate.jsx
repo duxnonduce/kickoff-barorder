@@ -5,7 +5,7 @@ import { useState } from "react";
 // Gate minimo v1: chiede il PIN staff e lo tiene in memoria per la sessione
 // (viene passato alle chiamate API che modificano dati). Da sostituire in
 // una v2 con Supabase Auth + ruoli, sullo stesso modello di PointLab.
-export default function PinGate({ onUnlock, label }) {
+export default function PinGate({ onUnlock, label, role = "bar" }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
 
@@ -18,7 +18,7 @@ export default function PinGate({ onUnlock, label }) {
     const res = await fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin: pin.trim() }),
+      body: JSON.stringify({ pin: pin.trim(), role }),
     });
     const { ok } = await res.json();
     if (!ok) {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { checkStaffPin } from "@/lib/supabaseAdmin";
+import { checkPin } from "@/lib/supabaseAdmin";
 
 export async function POST(req) {
-  const { pin } = await req.json();
-  return NextResponse.json({ ok: checkStaffPin(pin) });
+  const { pin, role } = await req.json();
+  return NextResponse.json({ ok: checkPin(pin, role || "bar") });
 }
