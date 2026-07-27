@@ -79,7 +79,10 @@ function BarDashboard({ pin }) {
   return (
     <div className="max-w-6xl mx-auto px-4 pt-6 pb-16">
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-2xl font-bold tracking-tight">Coda ordini</h1>
+        <div className="flex items-center gap-3">
+          <img src="/logo-icon.png" alt="KickOff" className="h-9 w-auto" />
+          <h1 className="text-2xl font-bold tracking-tight">Coda ordini</h1>
+        </div>
         <div className="flex gap-1 bg-stone-100 p-1 rounded-lg text-sm">
           {["coda", "prodotti"].map((t) => (
             <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-md font-medium capitalize ${tab === t ? "bg-white shadow-sm" : "text-stone-500"}`}>{t}</button>
@@ -171,6 +174,9 @@ function ReceiptModal({ order, table, onClose }) {
           <span className="text-sm font-semibold">Scontrino inviato alla stampante di rete</span>
         </div>
         <div className="border border-dashed border-stone-300 rounded-lg p-4 font-mono text-xs bg-stone-50">
+          <div className="flex justify-center mb-2">
+            <img src="/logo-icon.png" alt="KickOff" className="h-8 w-auto" />
+          </div>
           <div className="text-center font-bold mb-1">KICKOFF · BAR</div>
           <div className="text-center text-stone-500 mb-2">Ordine {order.code}</div>
           <div className="border-t border-stone-300 my-2" />

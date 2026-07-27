@@ -99,7 +99,8 @@ function AdminDashboard({ pin }) {
 
   return (
     <div className="max-w-6xl mx-auto px-4 pt-6 pb-16">
-      <div className="flex items-center gap-2 mb-6">
+      <div className="flex items-center gap-3 mb-6">
+        <img src="/logo-icon.png" alt="KickOff" className="h-9 w-auto" />
         <Settings2 className="h-5 w-5 text-stone-400" />
         <h1 className="text-2xl font-bold tracking-tight">Pannello Admin</h1>
       </div>
@@ -237,6 +238,7 @@ function QrModal({ table, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/40 grid place-items-center z-30 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl p-6 text-center" onClick={(e) => e.stopPropagation()}>
+        <img src="/logo-icon.png" alt="KickOff" className="h-8 w-auto mx-auto mb-3" />
         {dataUrl && <img src={dataUrl} alt="QR" className="mx-auto" width={220} height={220} />}
         <div className="mt-3 font-bold">{table.label}</div>
         <div className="text-xs text-stone-400 font-mono mb-4 break-all max-w-[220px]">{url}</div>

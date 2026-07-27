@@ -31,7 +31,7 @@ export default function PinGate({ onUnlock, label, role = "bar" }) {
   return (
     <div className="min-h-screen grid place-items-center px-6">
       <form onSubmit={submit} className="w-full max-w-xs text-center">
-        <div className="h-12 w-12 rounded-lg bg-stone-900 text-white grid place-items-center font-bold mx-auto mb-4">KO</div>
+        <img src="/logo-icon.png" alt="KickOff" className="h-14 w-auto mx-auto mb-4" />
         <h1 className="text-lg font-bold mb-1">{label}</h1>
         <p className="text-sm text-stone-500 mb-4">Inserisci il PIN dello staff</p>
         <input

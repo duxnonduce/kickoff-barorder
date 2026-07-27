@@ -126,6 +126,10 @@ export default function OrderPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 pb-40">
+      <div className="flex justify-center mb-4">
+        <img src="/logo-icon.png" alt="KickOff" className="h-10 w-auto" />
+      </div>
+
       <div className={`flex items-center gap-2 mb-6 px-3 py-2 rounded-lg border ${zs.soft} ${zs.border}`}>
         <span className={`text-sm font-semibold ${zs.text}`}>{table.label}</span>
         <span className="text-xs text-stone-500">· {zone?.name}</span>
@@ -172,6 +176,9 @@ export default function OrderPage() {
 
       {cartItems.length > 0 && (
         <div className="fixed bottom-4 left-4 right-4 max-w-lg mx-auto bg-stone-900 text-white rounded-2xl p-4 shadow-xl">
+          <div className="flex items-center justify-center mb-2">
+            <img src="/logo-icon.png" alt="KickOff" className="h-6 w-auto opacity-90" />
+          </div>
           <div className="flex gap-2 mb-3">
             <button onClick={() => setMode("ritiro")} className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border ${mode === "ritiro" ? "bg-white text-stone-900 border-white" : "border-stone-600 text-stone-300"}`}>
               <ShoppingBag className="h-3.5 w-3.5" /> Ritiro al bar
@@ -210,6 +217,7 @@ function OrderTrackView({ order, table, zone, onBack }) {
       <button onClick={onBack} className="mb-6 inline-flex items-center gap-1 text-sm text-stone-500">
         <ArrowLeft className="h-4 w-4" /> Nuovo ordine
       </button>
+      <img src="/logo-icon.png" alt="KickOff" className="h-9 w-auto mx-auto mb-4" />
       <div className="text-6xl font-black tracking-tighter tabular-nums mb-1">{order.code}</div>
       <div className="text-sm text-stone-500 mb-8">{table.label} · {zone?.name}</div>
 
