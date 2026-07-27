@@ -44,6 +44,20 @@ create table if not exists products (
 -- ---------- SEQUENZA CODICE ORDINE (#41, #42, ...) ----------
 create sequence if not exists order_code_seq start 41;
 
+-- ---------- CLIENTI ----------
+-- Nessuna policy RLS pubblica: i dati si leggono/scrivono solo tramite
+-- le API route (Service Role), mai direttamente dal browser col client anon.
+create table if not exists customers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text,
+  phone text not null unique,
+  created_at timestamptz default now()
+);
+
+alter table customers enable row level security;
+-- Nessuna policy = nessun accesso pubblico (solo via Service Role nelle API route)
+
 -- ---------- ORDINI ----------
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
@@ -55,6 +69,11 @@ create table if not exists orders (
     check (status in ('in_attesa','accettato','pronto','completato','rifiutato')),
   total numeric(10,2) not null,
   note text,
+  customer_id uuid references customers(id),
+  customer_name text,
+  customer_phone text,
+  customer_email text,
+  requested_time timestamptz, -- null = "il prima possibile"
   created_at timestamptz default now(),
   accepted_at timestamptz,
   printed_at timestamptz

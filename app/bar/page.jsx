@@ -150,7 +150,15 @@ function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted }) 
                 <span className="font-black tabular-nums text-lg tracking-tight">{o.code}</span>
                 <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border bg-stone-100 text-stone-600 border-stone-200">{STATUS_LABEL[o.status]}</span>
               </div>
-              <div className="text-xs font-semibold text-stone-600 mb-2">{table?.label} · {o.type === "ritiro" ? "Ritiro" : "Consegna"}</div>
+              <div className="text-xs font-semibold text-stone-600 mb-1">{table?.label} · {o.type === "ritiro" ? "Ritiro" : "Consegna"}</div>
+              {o.customer_name && (
+                <div className="text-xs text-stone-500 mb-1">{o.customer_name} · {o.customer_phone}</div>
+              )}
+              <div className="text-xs font-medium text-stone-500 mb-2">
+                {o.requested_time
+                  ? `Richiesto per le ${new Date(o.requested_time).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`
+                  : "Il prima possibile"}
+              </div>
               <div className="text-xs text-stone-600 space-y-0.5 mb-2">
                 {o.order_items?.map((it) => <div key={it.id}>{it.qty}× {it.name}</div>)}
               </div>
@@ -182,6 +190,8 @@ function ReceiptModal({ order, table, onClose }) {
           <div className="border-t border-stone-300 my-2" />
           <div>{table?.label}</div>
           <div>{order.type === "ritiro" ? "RITIRO AL BANCO" : "CONSEGNA IN ZONA"}</div>
+          {order.customer_name && <div>{order.customer_name} · {order.customer_phone}</div>}
+          <div>{order.requested_time ? `Ore ${new Date(order.requested_time).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}` : "Il prima possibile"}</div>
           <div className="border-t border-stone-300 my-2" />
           {order.order_items?.map((it) => (
             <div key={it.id} className="flex justify-between"><span>{it.qty}× {it.name}</span><span>€{(Number(it.price) * it.qty).toFixed(2)}</span></div>

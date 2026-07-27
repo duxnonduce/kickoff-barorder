@@ -20,6 +20,7 @@ function AdminDashboard({ pin }) {
   const [tables, setTables] = useState([]);
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [newTableZone, setNewTableZone] = useState("");
   const [newTableLabel, setNewTableLabel] = useState("");
   const [newProduct, setNewProduct] = useState({ name: "", price: "", category_id: "" });
@@ -40,7 +41,15 @@ function AdminDashboard({ pin }) {
     if (c?.length && !newProduct.category_id) setNewProduct((p) => ({ ...p, category_id: c[0].id }));
   }
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); loadCustomers(); }, []);
+
+  async function loadCustomers() {
+    const res = await fetch(`/api/customers?pin=${encodeURIComponent(pin)}`);
+    if (res.ok) {
+      const { customers } = await res.json();
+      setCustomers(customers || []);
+    }
+  }
 
   async function addTable() {
     if (!newTableLabel.trim()) return;
@@ -95,6 +104,7 @@ function AdminDashboard({ pin }) {
     { id: "postazioni", label: "Postazioni & QR" },
     { id: "prodotti", label: "Prodotti" },
     { id: "zone", label: "Zone & sovrapprezzi" },
+    { id: "clienti", label: "Clienti" },
   ];
 
   return (
@@ -192,6 +202,25 @@ function AdminDashboard({ pin }) {
                 />
               </div>
               <div className="text-xs text-stone-400 mt-3">{tables.filter((t) => t.zone_id === z.id).length} postazioni attive</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "clienti" && (
+        <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+          {customers.length === 0 && (
+            <div className="text-sm text-stone-400 italic px-4 py-6 text-center">Nessun cliente registrato ancora.</div>
+          )}
+          {customers.map((c) => (
+            <div key={c.id} className="flex items-center justify-between px-4 py-3">
+              <div>
+                <div className="text-sm font-medium">{c.name}</div>
+                <div className="text-xs text-stone-500">{c.phone}{c.email ? ` · ${c.email}` : ""}</div>
+              </div>
+              <div className="text-xs text-stone-400">
+                dal {new Date(c.created_at).toLocaleDateString("it-IT")}
+              </div>
             </div>
           ))}
         </div>

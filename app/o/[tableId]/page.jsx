@@ -3,13 +3,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock } from "lucide-react";
 
 const ZONE_STYLE = {
   piscina: { text: "text-teal-800", soft: "bg-teal-50", border: "border-teal-200" },
   campi: { text: "text-orange-800", soft: "bg-orange-50", border: "border-orange-200" },
   bar: { text: "text-stone-800", soft: "bg-stone-100", border: "border-stone-300" },
 };
+
+const CUSTOMER_STORAGE_KEY = "kickoff_customer";
+
+function generateTimeSlots() {
+  const slots = [];
+  const now = new Date();
+  let next = new Date(now.getTime() + 20 * 60000); // parti da +20 min
+  next.setMinutes(Math.ceil(next.getMinutes() / 15) * 15, 0, 0);
+  const closing = new Date(now);
+  closing.setHours(23, 0, 0, 0);
+  while (next <= closing && slots.length < 20) {
+    slots.push(new Date(next));
+    next = new Date(next.getTime() + 15 * 60000);
+  }
+  return slots;
+}
 
 export default function OrderPage() {
   const { tableId } = useParams();
@@ -20,10 +36,22 @@ export default function OrderPage() {
   const [cart, setCart] = useState({});
   const [mode, setMode] = useState("ritiro");
   const [note, setNote] = useState("");
+  const [requestedTime, setRequestedTime] = useState("asap");
   const [loading, setLoading] = useState(true);
   const [placedOrder, setPlacedOrder] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [customer, setCustomer] = useState(null); // { name, email, phone }
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+
+  const timeSlots = useMemo(() => generateTimeSlots(), []);
+
+  useEffect(() => {
+    const saved = typeof window !== "undefined" && window.localStorage.getItem(CUSTOMER_STORAGE_KEY);
+    if (saved) {
+      try { setCustomer(JSON.parse(saved)); } catch {}
+    }
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -41,7 +69,6 @@ export default function OrderPage() {
     load();
   }, [tableId]);
 
-  // Realtime: se il bar disattiva un prodotto mentre sto ordinando
   useEffect(() => {
     const channel = supabase
       .channel("products-live")
@@ -52,7 +79,6 @@ export default function OrderPage() {
     return () => supabase.removeChannel(channel);
   }, []);
 
-  // Realtime: stato del mio ordine dopo l'invio
   useEffect(() => {
     if (!placedOrder) return;
     const channel = supabase
@@ -76,11 +102,29 @@ export default function OrderPage() {
     setCart((prev) => ({ ...prev, [pid]: Math.max(0, (prev[pid] || 0) + delta) }));
   }
 
+  function saveCustomer(info) {
+    setCustomer(info);
+    if (typeof window !== "undefined") {
+      if (info) window.localStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(info));
+      else window.localStorage.removeItem(CUSTOMER_STORAGE_KEY);
+    }
+  }
+
   async function handleSubmit() {
-    if (cartItems.length === 0) return;
+    if (cartItems.length === 0 || !customer) return;
     setSubmitting(true);
     setError(null);
     try {
+      const custRes = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(customer),
+      });
+      const custData = await custRes.json();
+      if (!custRes.ok) throw new Error(custData.error || "Errore registrazione");
+
+      const requestedIso = requestedTime === "asap" ? null : requestedTime;
+
       const { data: order, error: orderErr } = await supabase
         .from("orders")
         .insert({
@@ -89,6 +133,11 @@ export default function OrderPage() {
           type: mode,
           total,
           note: note || null,
+          customer_id: custData.customer.id,
+          customer_name: customer.name,
+          customer_phone: customer.phone,
+          customer_email: customer.email || null,
+          requested_time: requestedIso,
         })
         .select()
         .single();
@@ -107,6 +156,7 @@ export default function OrderPage() {
       setPlacedOrder({ ...order, items });
       setCart({});
       setNote("");
+      setCheckoutOpen(false);
     } catch (e) {
       setError("Non sono riuscito a inviare l'ordine. Riprova.");
       console.error(e);
@@ -126,10 +176,6 @@ export default function OrderPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 pb-40">
-      <div className="flex justify-center mb-4">
-        <img src="/logo-icon.png" alt="KickOff" className="h-10 w-auto" />
-      </div>
-
       <div className={`flex items-center gap-2 mb-6 px-3 py-2 rounded-lg border ${zs.soft} ${zs.border}`}>
         <span className={`text-sm font-semibold ${zs.text}`}>{table.label}</span>
         <span className="text-xs text-stone-500">· {zone?.name}</span>
@@ -176,28 +222,113 @@ export default function OrderPage() {
 
       {cartItems.length > 0 && (
         <div className="fixed bottom-4 left-4 right-4 max-w-lg mx-auto bg-stone-900 text-white rounded-2xl p-4 shadow-xl">
-          <div className="flex items-center justify-center mb-2">
-            <img src="/logo-icon.png" alt="KickOff" className="h-6 w-auto opacity-90" />
-          </div>
-          <div className="flex gap-2 mb-3">
-            <button onClick={() => setMode("ritiro")} className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border ${mode === "ritiro" ? "bg-white text-stone-900 border-white" : "border-stone-600 text-stone-300"}`}>
-              <ShoppingBag className="h-3.5 w-3.5" /> Ritiro al bar
-            </button>
-            <button onClick={() => setMode("consegna")} className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border ${mode === "consegna" ? "bg-white text-stone-900 border-white" : "border-stone-600 text-stone-300"}`}>
-              <Bike className="h-3.5 w-3.5" /> Consegna {Number(zone?.surcharge) > 0 && `(+€${Number(zone.surcharge).toFixed(2)})`}
-            </button>
-          </div>
-          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note per il bar (es. senza ghiaccio)" className="w-full mb-3 text-sm bg-stone-800 placeholder-stone-400 rounded-lg px-3 py-2 outline-none" />
-          <div className="flex items-center justify-between mb-3 text-sm">
-            <span className="text-stone-300">Totale da pagare {mode === "consegna" ? "alla consegna" : "al ritiro"}</span>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-stone-300">{cartItems.length} prodott{cartItems.length === 1 ? "o" : "i"} nel carrello</span>
             <span className="font-bold text-lg tabular-nums">€{total.toFixed(2)}</span>
           </div>
-          {error && <div className="text-rose-300 text-xs mb-2">{error}</div>}
-          <button disabled={submitting} onClick={handleSubmit} className="w-full bg-orange-700 hover:bg-orange-600 transition rounded-lg py-3 font-semibold text-sm disabled:opacity-50">
-            {submitting ? "Invio…" : `Invia ordine · ${table.label}`}
+          <button onClick={() => setCheckoutOpen(true)} className="w-full bg-orange-700 hover:bg-orange-600 transition rounded-lg py-3 font-semibold text-sm">
+            Continua
           </button>
         </div>
       )}
+
+      {checkoutOpen && (
+        <CheckoutSheet
+          table={table} zone={zone}
+          mode={mode} setMode={setMode}
+          note={note} setNote={setNote}
+          requestedTime={requestedTime} setRequestedTime={setRequestedTime}
+          timeSlots={timeSlots}
+          total={total}
+          customer={customer} saveCustomer={saveCustomer}
+          onClose={() => setCheckoutOpen(false)}
+          onSubmit={handleSubmit}
+          submitting={submitting} error={error}
+        />
+      )}
+    </div>
+  );
+}
+
+function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTime, setRequestedTime, timeSlots, total, customer, saveCustomer, onClose, onSubmit, submitting, error }) {
+  const [form, setForm] = useState(customer || { name: "", email: "", phone: "" });
+
+  function handleConfirmDetails() {
+    if (!form.name.trim() || !form.phone.trim()) return;
+    saveCustomer({ name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim() });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">Ultimo passo</h2>
+          <button onClick={onClose} className="text-stone-400 text-sm">Chiudi</button>
+        </div>
+
+        {!customer ? (
+          <div className="mb-5">
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">I tuoi dati</div>
+            <div className="space-y-2">
+              <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Nome e cognome" className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2" />
+              <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Numero di telefono" type="tel" className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2" />
+              <input value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="Email (facoltativa)" type="email" className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2" />
+              <button onClick={handleConfirmDetails} disabled={!form.name.trim() || !form.phone.trim()} className="w-full bg-stone-900 text-white text-sm font-semibold rounded-lg py-2.5 disabled:opacity-40">
+                Conferma dati
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-5 flex items-center justify-between bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+            <div className="text-sm">
+              <div className="font-medium">{customer.name}</div>
+              <div className="text-xs text-stone-500">{customer.phone}</div>
+            </div>
+            <button onClick={() => saveCustomer(null)} className="text-xs font-semibold text-stone-500">Cambia</button>
+          </div>
+        )}
+
+        {customer && (
+          <>
+            <div className="mb-5">
+              <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Come lo vuoi</div>
+              <div className="flex gap-2">
+                <button onClick={() => setMode("ritiro")} className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border ${mode === "ritiro" ? "bg-stone-900 text-white border-stone-900" : "border-stone-300 text-stone-600"}`}>
+                  <ShoppingBag className="h-3.5 w-3.5" /> Ritiro al bar
+                </button>
+                <button onClick={() => setMode("consegna")} className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border ${mode === "consegna" ? "bg-stone-900 text-white border-stone-900" : "border-stone-300 text-stone-600"}`}>
+                  <Bike className="h-3.5 w-3.5" /> Consegna {Number(zone?.surcharge) > 0 && `(+€${Number(zone.surcharge).toFixed(2)})`}
+                </button>
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2 flex items-center gap-1.5">
+                <Clock className="h-3 w-3" /> A che ora lo vuoi
+              </div>
+              <select value={requestedTime} onChange={(e) => setRequestedTime(e.target.value)} className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2">
+                <option value="asap">Il prima possibile</option>
+                {timeSlots.map((t) => (
+                  <option key={t.toISOString()} value={t.toISOString()}>
+                    Alle {t.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note per il bar (es. senza ghiaccio)" className="w-full mb-4 text-sm border border-stone-300 rounded-lg px-3 py-2" />
+
+            <div className="flex items-center justify-between mb-3 text-sm">
+              <span className="text-stone-500">Totale da pagare {mode === "consegna" ? "alla consegna" : "al ritiro"}</span>
+              <span className="font-bold text-lg tabular-nums">€{total.toFixed(2)}</span>
+            </div>
+            {error && <div className="text-rose-600 text-xs mb-2">{error}</div>}
+            <button disabled={submitting} onClick={onSubmit} className="w-full bg-orange-700 hover:bg-orange-600 transition rounded-lg py-3 font-semibold text-sm text-white disabled:opacity-50">
+              {submitting ? "Invio…" : `Invia ordine · ${table.label}`}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -217,9 +348,13 @@ function OrderTrackView({ order, table, zone, onBack }) {
       <button onClick={onBack} className="mb-6 inline-flex items-center gap-1 text-sm text-stone-500">
         <ArrowLeft className="h-4 w-4" /> Nuovo ordine
       </button>
-      <img src="/logo-icon.png" alt="KickOff" className="h-9 w-auto mx-auto mb-4" />
       <div className="text-6xl font-black tracking-tighter tabular-nums mb-1">{order.code}</div>
-      <div className="text-sm text-stone-500 mb-8">{table.label} · {zone?.name}</div>
+      <div className="text-sm text-stone-500 mb-1">{table.label} · {zone?.name}</div>
+      <div className="text-sm text-stone-500 mb-8">
+        {order.requested_time
+          ? `Richiesto per le ${new Date(order.requested_time).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`
+          : "Il prima possibile"}
+      </div>
 
       {order.status === "rifiutato" ? (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-4 text-sm font-medium">
