@@ -13,14 +13,21 @@ const ZONE_STYLE = {
 
 const CUSTOMER_STORAGE_KEY = "kickoff_customer";
 
-function generateTimeSlots() {
-  const slots = [];
+function generateTimeSlots(todayHours) {
+  if (!todayHours || todayHours.closed) return [];
   const now = new Date();
-  let next = new Date(now.getTime() + 20 * 60000); // parti da +20 min
+  const [oh, om] = todayHours.open_time.slice(0, 5).split(":").map(Number);
+  const [ch, cm] = todayHours.close_time.slice(0, 5).split(":").map(Number);
+  const openAt = new Date(now); openAt.setHours(oh, om, 0, 0);
+  const closeAt = new Date(now); closeAt.setHours(ch, cm, 0, 0);
+  const cutoffAt = new Date(closeAt.getTime() - 15 * 60000); // ultimo orario prenotabile
+
+  const earliestPossible = new Date(now.getTime() + 20 * 60000); // non prima di +20 min da adesso
+  let next = new Date(Math.max(earliestPossible.getTime(), openAt.getTime()));
   next.setMinutes(Math.ceil(next.getMinutes() / 15) * 15, 0, 0);
-  const closing = new Date(now);
-  closing.setHours(23, 0, 0, 0);
-  while (next <= closing && slots.length < 20) {
+
+  const slots = [];
+  while (next <= cutoffAt && slots.length < 24) {
     slots.push(new Date(next));
     next = new Date(next.getTime() + 15 * 60000);
   }
@@ -46,7 +53,7 @@ export default function OrderPage() {
   const [todayHours, setTodayHours] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
 
-  const timeSlots = useMemo(() => generateTimeSlots(), []);
+  const timeSlots = useMemo(() => generateTimeSlots(todayHours), [todayHours]);
 
   useEffect(() => {
     async function loadSettings() {
