@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import PinGate from "@/components/PinGate";
+import HoursAndAnnouncements from "@/components/HoursAndAnnouncements";
 import { Clock, UtensilsCrossed, Receipt, CheckCircle2, XCircle, Printer } from "lucide-react";
 
 const STATUS_LABEL = {
@@ -84,8 +85,8 @@ function BarDashboard({ pin }) {
           <h1 className="text-2xl font-bold tracking-tight">Coda ordini</h1>
         </div>
         <div className="flex gap-1 bg-stone-100 p-1 rounded-lg text-sm">
-          {["coda", "prodotti"].map((t) => (
-            <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-md font-medium capitalize ${tab === t ? "bg-white shadow-sm" : "text-stone-500"}`}>{t}</button>
+          {["coda", "prodotti", "orari"].map((t) => (
+            <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-md font-medium capitalize ${tab === t ? "bg-white shadow-sm" : "text-stone-500"}`}>{t === "orari" ? "Orari & Avvisi" : t}</button>
           ))}
         </div>
       </div>
@@ -126,6 +127,8 @@ function BarDashboard({ pin }) {
           ))}
         </div>
       )}
+
+      {tab === "orari" && <HoursAndAnnouncements pin={pin} />}
 
       {receiptOrder && <ReceiptModal order={receiptOrder} table={tableOf(receiptOrder.table_id)} onClose={() => setReceiptOrder(null)} />}
     </div>

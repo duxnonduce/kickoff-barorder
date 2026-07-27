@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock } from "lucide-react";
+import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone } from "lucide-react";
 
 const ZONE_STYLE = {
   piscina: { text: "text-teal-800", soft: "bg-teal-50", border: "border-teal-200" },
@@ -43,8 +43,41 @@ export default function OrderPage() {
   const [error, setError] = useState(null);
   const [customer, setCustomer] = useState(null); // { name, email, phone }
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [todayHours, setTodayHours] = useState(null);
+  const [announcements, setAnnouncements] = useState([]);
 
   const timeSlots = useMemo(() => generateTimeSlots(), []);
+
+  useEffect(() => {
+    async function loadSettings() {
+      const [hoursRes, annRes] = await Promise.all([
+        fetch("/api/opening-hours"),
+        fetch("/api/announcements"),
+      ]);
+      const { hours } = await hoursRes.json();
+      const { announcements: ann } = await annRes.json();
+      const today = new Date().getDay();
+      setTodayHours((hours || []).find((h) => h.day_of_week === today) || null);
+      setAnnouncements((ann || []).filter((a) => a.active));
+    }
+    loadSettings();
+  }, []);
+
+  const orderingStatus = useMemo(() => {
+    if (!todayHours) return { open: true }; // finché non carica, non blocco l'utente
+    if (todayHours.closed) return { open: false, reason: "closed_today" };
+    const now = new Date();
+    const [oh, om] = todayHours.open_time.slice(0, 5).split(":").map(Number);
+    const [ch, cm] = todayHours.close_time.slice(0, 5).split(":").map(Number);
+    const openAt = new Date(now); openAt.setHours(oh, om, 0, 0);
+    const closeAt = new Date(now); closeAt.setHours(ch, cm, 0, 0);
+    const cutoffAt = new Date(closeAt.getTime() - 15 * 60000);
+    if (now < openAt) return { open: false, reason: "not_yet_open", openAt };
+    if (now >= cutoffAt) return { open: false, reason: "past_cutoff", closeAt };
+    return { open: true, cutoffAt };
+  }, [todayHours]);
+
+  const fmtTime = (d) => d?.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 
   useEffect(() => {
     const saved = typeof window !== "undefined" && window.localStorage.getItem(CUSTOMER_STORAGE_KEY);
@@ -112,6 +145,16 @@ export default function OrderPage() {
 
   async function handleSubmit() {
     if (cartItems.length === 0 || !customer) return;
+    if (todayHours) {
+      const now = new Date();
+      const [ch, cm] = todayHours.close_time.slice(0, 5).split(":").map(Number);
+      const closeAt = new Date(now); closeAt.setHours(ch, cm, 0, 0);
+      const cutoffAt = new Date(closeAt.getTime() - 15 * 60000);
+      if (todayHours.closed || now >= cutoffAt) {
+        setError("Gli ordini sono appena stati chiusi per oggi. Riprova domani.");
+        return;
+      }
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -176,10 +219,31 @@ export default function OrderPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 pb-40">
-      <div className={`flex items-center gap-2 mb-6 px-3 py-2 rounded-lg border ${zs.soft} ${zs.border}`}>
+      <div className={`flex items-center gap-2 mb-4 px-3 py-2 rounded-lg border ${zs.soft} ${zs.border}`}>
         <span className={`text-sm font-semibold ${zs.text}`}>{table.label}</span>
         <span className="text-xs text-stone-500">· {zone?.name}</span>
       </div>
+
+      {orderingStatus.open && orderingStatus.cutoffAt && (
+        <div className="mb-4 text-xs text-stone-500 flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5" /> Puoi ordinare fino alle {fmtTime(orderingStatus.cutoffAt)}
+        </div>
+      )}
+
+      {announcements.map((a) => (
+        <div key={a.id} className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2 text-sm">
+          <Megaphone className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{a.message}</span>
+        </div>
+      ))}
+
+      {!orderingStatus.open && (
+        <div className="mb-6 bg-stone-100 border border-stone-200 rounded-xl p-4 text-sm text-stone-600">
+          {orderingStatus.reason === "closed_today" && "Il bar è chiuso oggi. Non è possibile inviare ordini."}
+          {orderingStatus.reason === "not_yet_open" && `Il bar apre alle ${fmtTime(orderingStatus.openAt)}. Potrai ordinare da quell'orario.`}
+          {orderingStatus.reason === "past_cutoff" && `Gli ordini per oggi sono chiusi (chiusura alle ${fmtTime(orderingStatus.closeAt)}). Puoi comunque guardare il menu.`}
+        </div>
+      )}
 
       <h1 className="text-2xl font-bold tracking-tight mb-1">Cosa ti portiamo?</h1>
       <p className="text-sm text-stone-500 mb-6">Ordina dal tuo posto. Il bar prepara e ti avvisa.</p>
@@ -220,7 +284,7 @@ export default function OrderPage() {
         );
       })}
 
-      {cartItems.length > 0 && (
+      {cartItems.length > 0 && orderingStatus.open && (
         <div className="fixed bottom-4 left-4 right-4 max-w-lg mx-auto bg-stone-900 text-white rounded-2xl p-4 shadow-xl">
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm text-stone-300">{cartItems.length} prodott{cartItems.length === 1 ? "o" : "i"} nel carrello</span>

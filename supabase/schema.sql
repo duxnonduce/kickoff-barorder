@@ -89,6 +89,23 @@ create table if not exists order_items (
   qty int not null
 );
 
+-- ---------- ORARI DI APERTURA ----------
+-- day_of_week: 0 = domenica, 1 = lunedì, ... 6 = sabato (come JS Date.getDay())
+create table if not exists opening_hours (
+  day_of_week int primary key check (day_of_week between 0 and 6),
+  open_time time not null default '08:00',
+  close_time time not null default '23:00',
+  closed boolean not null default false
+);
+
+-- ---------- AVVISI / COMUNICAZIONI ----------
+create table if not exists announcements (
+  id uuid primary key default gen_random_uuid(),
+  message text not null,
+  active boolean not null default true,
+  created_at timestamptz default now()
+);
+
 -- ============================================================
 -- ROW LEVEL SECURITY
 -- v1 semplice: lettura pubblica di menu/zone/postazioni,
@@ -103,11 +120,15 @@ alter table categories enable row level security;
 alter table products enable row level security;
 alter table orders enable row level security;
 alter table order_items enable row level security;
+alter table opening_hours enable row level security;
+alter table announcements enable row level security;
 
 create policy "lettura pubblica zone" on zones for select using (true);
 create policy "lettura pubblica postazioni" on tables for select using (true);
 create policy "lettura pubblica categorie" on categories for select using (true);
 create policy "lettura pubblica prodotti" on products for select using (true);
+create policy "lettura pubblica orari" on opening_hours for select using (true);
+create policy "lettura pubblica avvisi" on announcements for select using (true);
 
 create policy "creazione ordini pubblica" on orders for insert with check (true);
 create policy "lettura ordini pubblica" on orders for select using (true);
@@ -132,3 +153,8 @@ insert into zones (name, type, surcharge) values
 
 insert into categories (name, sort_order) values
   ('Bevande', 1), ('Panini & Piadine', 2), ('Snack', 3), ('Pizze', 4);
+
+insert into opening_hours (day_of_week, open_time, close_time, closed)
+select d, '08:00', '23:00', false
+from generate_series(0, 6) as d
+on conflict (day_of_week) do nothing;

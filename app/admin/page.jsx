@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { supabase } from "@/lib/supabaseClient";
 import PinGate from "@/components/PinGate";
+import HoursAndAnnouncements from "@/components/HoursAndAnnouncements";
 import { Plus, Trash2, Tag, Settings2 } from "lucide-react";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kickoff-ordina.vercel.app";
@@ -105,6 +106,7 @@ function AdminDashboard({ pin }) {
     { id: "prodotti", label: "Prodotti" },
     { id: "zone", label: "Zone & sovrapprezzi" },
     { id: "clienti", label: "Clienti" },
+    { id: "orari", label: "Orari & Avvisi" },
   ];
 
   return (
@@ -225,6 +227,7 @@ function AdminDashboard({ pin }) {
           ))}
         </div>
       )}
+      {tab === "orari" && <HoursAndAnnouncements pin={pin} />}
     </div>
   );
 }
