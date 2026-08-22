@@ -110,6 +110,7 @@ create table if not exists orders (
   rated_at timestamptz,
   reprint_requested_at timestamptz,
   reprint_count int not null default 0,
+  priority text not null default 'normal' check (priority in ('normal', 'urgent')),
   created_at timestamptz default now(),
   accepted_at timestamptz,
   completed_at timestamptz,
@@ -199,6 +200,18 @@ create table if not exists activity_log (
   created_at timestamptz default now()
 );
 
+-- ---------- STATO SERVIZIO (riga singola: pausa / solo ritiro) ----------
+create table if not exists service_status (
+  id int primary key default 1,
+  paused boolean not null default false,
+  pause_reason text,
+  paused_until timestamptz,
+  delivery_disabled boolean not null default false,
+  updated_at timestamptz default now()
+);
+
+insert into service_status (id) values (1) on conflict (id) do nothing;
+
 -- ---------- ORARI DI APERTURA ----------
 -- day_of_week: 0 = domenica, 1 = lunedì, ... 6 = sabato (come JS Date.getDay())
 create table if not exists opening_hours (
@@ -247,6 +260,9 @@ alter table staff enable row level security;
 create policy "lettura pubblica staff" on staff for select using (true);
 -- scrittura staff: solo via Service Role
 alter table activity_log enable row level security;
+alter table service_status enable row level security;
+create policy "lettura pubblica stato servizio" on service_status for select using (true);
+-- scrittura: solo via Service Role
 -- nessuna policy pubblica: solo via Service Role
 
 create policy "lettura pubblica zone" on zones for select using (true);
@@ -274,6 +290,7 @@ create policy "lettura opzioni scelte pubblica" on order_item_options for select
 alter publication supabase_realtime add table orders;
 alter publication supabase_realtime add table products;
 alter publication supabase_realtime add table assistance_requests;
+alter publication supabase_realtime add table service_status;
 
 -- ============================================================
 -- DATI DI PARTENZA (puoi modificarli/eliminarli dal pannello Admin)

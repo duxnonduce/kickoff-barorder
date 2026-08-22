@@ -4,21 +4,35 @@ import { supabaseAdmin, checkPin } from "@/lib/supabaseAdmin";
 export async function PATCH(req, { params }) {
   const { id } = params;
   const body = await req.json();
-  const { status, pin, reject_reason } = body;
+  const { status, pin, reject_reason, priority } = body;
 
   if (!checkPin(pin, "bar")) {
     return NextResponse.json({ error: "PIN non valido" }, { status: 401 });
   }
 
-  const allowed = ["accettato", "pronto", "completato", "rifiutato"];
-  if (!allowed.includes(status)) {
-    return NextResponse.json({ error: "Stato non valido" }, { status: 400 });
+  const patch = {};
+
+  if (status !== undefined) {
+    const allowed = ["accettato", "pronto", "completato", "rifiutato"];
+    if (!allowed.includes(status)) {
+      return NextResponse.json({ error: "Stato non valido" }, { status: 400 });
+    }
+    patch.status = status;
+    if (status === "accettato") patch.accepted_at = new Date().toISOString();
+    if (status === "completato") patch.completed_at = new Date().toISOString();
+    if (status === "rifiutato" && reject_reason) patch.reject_reason = reject_reason;
   }
 
-  const patch = { status };
-  if (status === "accettato") patch.accepted_at = new Date().toISOString();
-  if (status === "completato") patch.completed_at = new Date().toISOString();
-  if (status === "rifiutato" && reject_reason) patch.reject_reason = reject_reason;
+  if (priority !== undefined) {
+    if (!["normal", "urgent"].includes(priority)) {
+      return NextResponse.json({ error: "Priorità non valida" }, { status: 400 });
+    }
+    patch.priority = priority;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: "Nessuna modifica indicata" }, { status: 400 });
+  }
 
   const { data, error } = await supabaseAdmin
     .from("orders")

@@ -127,6 +127,11 @@ esattamente allo standard di PointLab:
 - **Anti no-show**: ora c'è un limite di 3 ordini attivi contemporanei per
   numero di telefono (protegge da abusi/spam), ma non c'è ancora una vera
   gestione dei "clienti che non si presentano a ritirare".
+- **Sessione staff giornaliera**: PIN e identità staff si azzerano da soli
+  quando cambia il giorno (controllo lato browser, non un vero timer
+  server-side) — se il tablet resta sempre acceso senza mai essere
+  riaperto, il reset scatta comunque al primo caricamento della pagina
+  del nuovo giorno, non esattamente a mezzanotte.
 - **Notifiche**: il cliente vede lo stato aggiornarsi nella pagina aperta,
   ma non riceve una notifica push se chiude la scheda. Si può aggiungere
   un numero di telefono + SMS quando l'ordine è pronto.

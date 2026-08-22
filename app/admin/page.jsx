@@ -23,9 +23,23 @@ function downloadCsv(filename, headers, rows) {
   URL.revokeObjectURL(url);
 }
 
+const ADMIN_SESSION_DATE_KEY = "kickoff_admin_session_date";
+
 export default function AdminPage() {
   const [pin, setPin] = useState(null);
   const [staffName, setStaffName] = useState(null);
+
+  useEffect(() => {
+    const today = new Date().toDateString();
+    const savedDate = window.sessionStorage.getItem(ADMIN_SESSION_DATE_KEY);
+    if (savedDate && savedDate !== today) {
+      window.sessionStorage.removeItem("kickoff_staff_admin");
+      setPin(null);
+      setStaffName(null);
+    }
+    window.sessionStorage.setItem(ADMIN_SESSION_DATE_KEY, today);
+  }, []);
+
   if (!pin) return <PinGate label="Pannello Admin" role="admin" onUnlock={setPin} />;
   if (!staffName) return <StaffGate role="admin" onSelect={setStaffName} />;
   return <AdminDashboard pin={pin} staffName={staffName} />;

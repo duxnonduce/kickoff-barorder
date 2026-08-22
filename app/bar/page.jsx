@@ -15,9 +15,23 @@ const STATUS_LABEL = {
   completato: "Completato",
 };
 
+const SESSION_DATE_KEY = "kickoff_bar_session_date";
+
 export default function BarPage() {
   const [pin, setPin] = useState(null);
   const [staffName, setStaffName] = useState(null);
+
+  useEffect(() => {
+    const today = new Date().toDateString();
+    const savedDate = window.sessionStorage.getItem(SESSION_DATE_KEY);
+    if (savedDate && savedDate !== today) {
+      // è cambiato il giorno: si riparte da PIN e identità staff puliti
+      window.sessionStorage.removeItem("kickoff_staff_bar");
+      setPin(null);
+      setStaffName(null);
+    }
+    window.sessionStorage.setItem(SESSION_DATE_KEY, today);
+  }, []);
 
   if (!pin) return <PinGate label="Dashboard Bar" role="bar" onUnlock={setPin} />;
   if (!staffName) return <StaffGate role="bar" onSelect={setStaffName} />;
@@ -35,6 +49,8 @@ function BarDashboard({ pin, staffName }) {
   const [rejectingOrder, setRejectingOrder] = useState(null);
   const [modifyingOrder, setModifyingOrder] = useState(null);
   const [assistance, setAssistance] = useState([]);
+  const [serviceStatus, setServiceStatus] = useState(null);
+  const [pauseModalOpen, setPauseModalOpen] = useState(false);
 
   async function loadAll() {
     const [{ data: o }, { data: t }, { data: z }, { data: p }, { data: a }] = await Promise.all([
@@ -51,12 +67,19 @@ function BarDashboard({ pin, staffName }) {
     setAssistance(a || []);
   }
 
+  async function loadServiceStatus() {
+    const res = await fetch("/api/service-status");
+    if (res.ok) { const { status } = await res.json(); setServiceStatus(status); }
+  }
+
   useEffect(() => {
     loadAll();
+    loadServiceStatus();
     const channel = supabase
       .channel("bar-orders")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadAll())
       .on("postgres_changes", { event: "*", schema: "public", table: "assistance_requests" }, () => loadAll())
+      .on("postgres_changes", { event: "*", schema: "public", table: "service_status" }, (payload) => setServiceStatus(payload.new))
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           setConnected(true);
@@ -67,6 +90,26 @@ function BarDashboard({ pin, staffName }) {
       });
     return () => supabase.removeChannel(channel);
   }, []);
+
+  async function updateServiceStatus(patch) {
+    const res = await fetch("/api/service-status", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, ...patch }),
+    });
+    if (res.ok) { const { status } = await res.json(); setServiceStatus(status); }
+  }
+
+  async function togglePriority(order) {
+    const next = order.priority === "urgent" ? "normal" : "urgent";
+    await fetch(`/api/orders/${order.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, priority: next }),
+    });
+    logActivity(next === "urgent" ? "Ordine segnato urgente" : "Ordine rimesso normale", order.code);
+    loadAll();
+  }
 
   async function resolveAssistance(id) {
     await fetch(`/api/assistance/${id}`, {
@@ -167,6 +210,31 @@ function BarDashboard({ pin, staffName }) {
         </div>
       </div>
 
+      {tab === "coda" && (
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          {serviceStatus?.paused ? (
+            <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-sm">
+              <span className="font-semibold text-rose-800">⏸ Ordini sospesi</span>
+              {serviceStatus.pause_reason && <span className="text-rose-600 text-xs">— {serviceStatus.pause_reason}</span>}
+              <button onClick={() => updateServiceStatus({ paused: false, pause_reason: null, paused_until: null })} className="text-xs font-semibold text-rose-700 underline ml-2">
+                Riprendi ordini
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setPauseModalOpen(true)} className="text-xs font-semibold px-3 py-2 rounded-lg border border-stone-300 text-stone-600">
+              ⏸ Sospendi ordini
+            </button>
+          )}
+
+          <button
+            onClick={() => updateServiceStatus({ delivery_disabled: !serviceStatus?.delivery_disabled })}
+            className={`text-xs font-semibold px-3 py-2 rounded-lg border ${serviceStatus?.delivery_disabled ? "bg-amber-50 border-amber-300 text-amber-800" : "border-stone-300 text-stone-600"}`}
+          >
+            {serviceStatus?.delivery_disabled ? "🚴 Consegne disattivate — riattiva" : "🚴 Disattiva consegne"}
+          </button>
+        </div>
+      )}
+
       {tab === "coda" && assistance.length > 0 && (
         <div className="mb-5 bg-rose-50 border border-rose-200 rounded-xl p-3">
           <div className="text-xs font-bold uppercase tracking-wider text-rose-800 mb-2">🔔 Richieste in sospeso ({assistance.length})</div>
@@ -213,7 +281,7 @@ function BarDashboard({ pin, staffName }) {
 
       {tab === "coda" && (
         <div className="grid md:grid-cols-3 gap-5">
-          <Column title="Nuovi · da accettare" icon={Clock} orders={pending} tableOf={tableOf} zoneOf={zoneOf}
+          <Column title="Nuovi · da accettare" icon={Clock} orders={pending} tableOf={tableOf} zoneOf={zoneOf} onTogglePriority={togglePriority}
             actions={(o) => (
               <div className="space-y-1.5">
                 <div className="flex gap-2">
@@ -228,7 +296,7 @@ function BarDashboard({ pin, staffName }) {
               </div>
             )}
           />
-          <Column title="In preparazione" icon={UtensilsCrossed} orders={active} tableOf={tableOf} zoneOf={zoneOf} onReprint={handleReprint}
+          <Column title="In preparazione" icon={UtensilsCrossed} orders={active} tableOf={tableOf} zoneOf={zoneOf} onReprint={handleReprint} onTogglePriority={togglePriority}
             actions={(o) => o.status === "accettato" ? (
               <button onClick={() => setStatus(o, "pronto")} className="w-full text-xs font-semibold py-1.5 rounded-md bg-emerald-700 text-white">Segna come pronto</button>
             ) : (
@@ -275,6 +343,66 @@ function BarDashboard({ pin, staffName }) {
           onConfirm={(removeItemIds) => handleModifyOrder(modifyingOrder, removeItemIds)}
         />
       )}
+      {pauseModalOpen && (
+        <PauseServiceModal
+          onClose={() => setPauseModalOpen(false)}
+          onConfirm={(reason, minutes) => {
+            const paused_until = minutes ? new Date(Date.now() + minutes * 60000).toISOString() : null;
+            updateServiceStatus({ paused: true, pause_reason: reason, paused_until });
+            logActivity("Ordini sospesi", `${reason}${minutes ? ` (${minutes} min)` : ""}`);
+            setPauseModalOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+const PAUSE_REASONS = ["Cucina congestionata", "Problemi tecnici", "Cambio turno", "Chiusura anticipata", "Evento in corso", "Altro"];
+
+function PauseServiceModal({ onClose, onConfirm }) {
+  const [reason, setReason] = useState(PAUSE_REASONS[0]);
+  const [customReason, setCustomReason] = useState("");
+  const [minutes, setMinutes] = useState(null); // null = manuale
+
+  return (
+    <div className="fixed inset-0 bg-black/40 grid place-items-center z-30 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="text-sm font-semibold mb-1">Sospendi ordini</div>
+        <p className="text-xs text-stone-500 mb-3">Il cliente vedrà questo messaggio al posto del menu.</p>
+        <div className="space-y-1.5 mb-3">
+          {PAUSE_REASONS.map((r) => (
+            <label key={r} className="flex items-center gap-2 text-sm">
+              <input type="radio" name="pause_reason" checked={reason === r} onChange={() => setReason(r)} />
+              {r}
+            </label>
+          ))}
+        </div>
+        {reason === "Altro" && (
+          <input value={customReason} onChange={(e) => setCustomReason(e.target.value)} placeholder="Scrivi il motivo" className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2 mb-3" />
+        )}
+        <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Per quanto tempo</div>
+        <div className="flex gap-1.5 mb-4">
+          {[{ label: "15 min", v: 15 }, { label: "30 min", v: 30 }, { label: "1 ora", v: 60 }, { label: "Manuale", v: null }].map((opt) => (
+            <button
+              key={opt.label}
+              onClick={() => setMinutes(opt.v)}
+              className={`flex-1 text-xs font-semibold py-1.5 rounded-md border ${minutes === opt.v ? "bg-stone-900 text-white border-stone-900" : "border-stone-300 text-stone-600"}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 text-sm font-semibold py-2 rounded-lg border border-stone-300">Annulla</button>
+          <button
+            onClick={() => onConfirm(reason === "Altro" ? (customReason.trim() || "Altro") : reason, minutes)}
+            className="flex-1 text-sm font-semibold py-2 rounded-lg bg-rose-700 text-white"
+          >
+            Sospendi
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -373,7 +501,7 @@ function ModifyOrderModal({ order, onClose, onConfirm }) {
   );
 }
 
-function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted, onReprint }) {
+function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted, onReprint, onTogglePriority }) {
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-3">
@@ -383,17 +511,28 @@ function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted, on
       </div>
       <div className="space-y-3">
         {orders.length === 0 && <div className="text-xs text-stone-300 italic py-4 text-center border border-dashed border-stone-200 rounded-lg">Nessun ordine</div>}
-        {orders.map((o) => {
+        {[...orders].sort((a, b) => (b.priority === "urgent" ? 1 : 0) - (a.priority === "urgent" ? 1 : 0)).map((o) => {
           const table = tableOf(o.table_id);
           return (
-            <div key={o.id} className={`rounded-xl border p-3 ${muted ? "border-stone-100 bg-stone-50 opacity-70" : "border-stone-200 bg-white"}`}>
+            <div key={o.id} className={`rounded-xl border p-3 ${o.priority === "urgent" ? "border-rose-300 bg-rose-50" : muted ? "border-stone-100 bg-stone-50 opacity-70" : "border-stone-200 bg-white"}`}>
               <div className="flex items-center justify-between mb-1.5">
-                <span className="font-black tabular-nums text-lg tracking-tight">{o.code}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-black tabular-nums text-lg tracking-tight">{o.code}</span>
+                  {o.priority === "urgent" && <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-rose-600 text-white">🔴 Urgente</span>}
+                </div>
                 <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border bg-stone-100 text-stone-600 border-stone-200">{STATUS_LABEL[o.status]}</span>
               </div>
               <div className="text-xs font-semibold text-stone-600 mb-1">{table?.label} · {o.type === "ritiro" ? "Ritiro" : "Consegna"}</div>
               {o.customer_name && (
-                <div className="text-xs text-stone-500 mb-1">{o.customer_name} · {o.customer_phone}</div>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-xs text-stone-500">{o.customer_name} · {o.customer_phone}</div>
+                  {o.customer_phone && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <a href={`tel:${o.customer_phone}`} className="text-[11px] font-semibold text-stone-500 hover:text-stone-800">📞</a>
+                      <a href={`https://wa.me/${o.customer_phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="text-[11px] font-semibold text-stone-500 hover:text-stone-800">💬</a>
+                    </div>
+                  )}
+                </div>
               )}
               <div className="text-xs font-medium text-stone-500 mb-2">
                 {o.requested_time
@@ -445,6 +584,11 @@ function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted, on
                     </button>
                   )}
                 </div>
+              )}
+              {onTogglePriority && o.status !== "completato" && o.status !== "rifiutato" && (
+                <button onClick={() => onTogglePriority(o)} className={`w-full text-[11px] font-semibold py-1 rounded-md mb-2 ${o.priority === "urgent" ? "bg-rose-100 text-rose-700" : "border border-stone-200 text-stone-500"}`}>
+                  {o.priority === "urgent" ? "Rimuovi urgenza" : "🔴 Segna come urgente"}
+                </button>
               )}
               {actions && actions(o)}
             </div>

@@ -80,6 +80,11 @@ export default function OrderPage() {
   const [customer, setCustomer] = useState(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [todayHours, setTodayHours] = useState(null);
+  const [serviceStatus, setServiceStatus] = useState(null);
+
+  useEffect(() => {
+    if (serviceStatus?.delivery_disabled && mode === "consegna") setMode("ritiro");
+  }, [serviceStatus?.delivery_disabled]);
   const [announcements, setAnnouncements] = useState([]);
   const [clientRequestId, setClientRequestId] = useState(() => newId());
   const [favorites, setFavorites] = useState([]);
@@ -113,9 +118,20 @@ export default function OrderPage() {
     loadSettings();
 
     fetch("/api/top-products").then((r) => r.json()).then((d) => setTopProductIds(d.productIds || [])).catch(() => {});
+
+    fetch("/api/service-status").then((r) => r.json()).then((d) => setServiceStatus(d.status)).catch(() => {});
+    const statusChannel = supabase
+      .channel("service-status-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "service_status" }, (payload) => setServiceStatus(payload.new))
+      .subscribe();
+    return () => supabase.removeChannel(statusChannel);
   }, []);
 
   const orderingStatus = useMemo(() => {
+    if (serviceStatus?.paused) {
+      const stillPaused = !serviceStatus.paused_until || new Date() < new Date(serviceStatus.paused_until);
+      if (stillPaused) return { open: false, reason: "service_paused", pauseReason: serviceStatus.pause_reason };
+    }
     if (!todayHours) return { open: true };
     if (todayHours.closed) return { open: false, reason: "closed_today" };
     const now = new Date();
@@ -127,7 +143,7 @@ export default function OrderPage() {
     if (now < openAt) return { open: false, reason: "not_yet_open", openAt };
     if (now >= cutoffAt) return { open: false, reason: "past_cutoff", closeAt };
     return { open: true, cutoffAt };
-  }, [todayHours]);
+  }, [todayHours, serviceStatus]);
 
   const fmtTime = (d) => d?.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 
@@ -653,6 +669,7 @@ export default function OrderPage() {
 
       {!orderingStatus.open && (
         <div className="mb-6 bg-stone-100 border border-stone-200 rounded-xl p-4 text-sm text-stone-600">
+          {orderingStatus.reason === "service_paused" && (orderingStatus.pauseReason || "Il servizio ordini è momentaneamente sospeso. Riprova tra qualche minuto.")}
           {orderingStatus.reason === "closed_today" && "Il bar è chiuso oggi. Non è possibile inviare ordini."}
           {orderingStatus.reason === "not_yet_open" && `Il bar apre alle ${fmtTime(orderingStatus.openAt)}. Potrai ordinare da quell'orario.`}
           {orderingStatus.reason === "past_cutoff" && `Gli ordini per oggi sono chiusi (chiusura alle ${fmtTime(orderingStatus.closeAt)}). Puoi comunque guardare il menu.`}
@@ -806,6 +823,7 @@ export default function OrderPage() {
           couponCode={couponCode} setCouponCode={setCouponCode}
           couponApplied={couponApplied} applyCoupon={applyCoupon} removeCoupon={removeCoupon}
           couponError={couponError} couponChecking={couponChecking}
+          deliveryDisabled={!!serviceStatus?.delivery_disabled}
         />
       )}
     </div>
@@ -1020,7 +1038,7 @@ function CustomizeSheet({ product, groups, onClose, onAdd }) {
 
 // ---------- Checkout ----------
 
-function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTime, setRequestedTime, timeSlots, total, subtotal, surcharge, cartLines, products, updateLineQty, removeLine, customer, saveCustomer, onClose, onSubmit, submitting, error, couponCode, setCouponCode, couponApplied, applyCoupon, removeCoupon, couponError, couponChecking }) {
+function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTime, setRequestedTime, timeSlots, total, subtotal, surcharge, cartLines, products, updateLineQty, removeLine, customer, saveCustomer, onClose, onSubmit, submitting, error, couponCode, setCouponCode, couponApplied, applyCoupon, removeCoupon, couponError, couponChecking, deliveryDisabled }) {
   const [form, setForm] = useState(customer || { name: "", email: "", phone: "" });
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
@@ -1114,10 +1132,15 @@ function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTim
                 <button onClick={() => setMode("ritiro")} className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border ${mode === "ritiro" ? "bg-stone-900 text-white border-stone-900" : "border-stone-300 text-stone-600"}`}>
                   <ShoppingBag className="h-3.5 w-3.5" /> Ritiro al bar
                 </button>
-                <button onClick={() => setMode("consegna")} className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border ${mode === "consegna" ? "bg-stone-900 text-white border-stone-900" : "border-stone-300 text-stone-600"}`}>
+                <button
+                  onClick={() => !deliveryDisabled && setMode("consegna")}
+                  disabled={deliveryDisabled}
+                  className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border disabled:opacity-40 ${mode === "consegna" ? "bg-stone-900 text-white border-stone-900" : "border-stone-300 text-stone-600"}`}
+                >
                   <Bike className="h-3.5 w-3.5" /> Consegna {Number(zone?.surcharge) > 0 && `(+€${Number(zone.surcharge).toFixed(2)})`}
                 </button>
               </div>
+              {deliveryDisabled && <p className="text-xs text-stone-400 mt-1.5">In questo momento è disponibile solo il ritiro al bar.</p>}
             </div>
 
             <div className="mb-5">
