@@ -72,6 +72,10 @@ export async function GET(req) {
     .map((p) => ({ ...p, margin: p.hasCost ? p.revenue - p.cost : null }))
     .sort((a, b) => b.revenue - a.revenue);
 
+  const ratedOrders = valid.filter((o) => o.rating != null);
+  const avgRating = ratedOrders.length > 0 ? ratedOrders.reduce((s, o) => s + o.rating, 0) / ratedOrders.length : null;
+  const lowRatings = ratedOrders.filter((o) => o.rating <= 2).map((o) => ({ code: o.code, rating: o.rating, comment: o.rating_comment }));
+
   return NextResponse.json({
     kpis: {
       totalOrders,
@@ -81,9 +85,12 @@ export async function GET(req) {
       deliveryCount,
       rejectedCount: rejected.length,
       avgPrepSeconds,
+      avgRating,
+      ratedCount: ratedOrders.length,
     },
     ordersByHour,
     salesByZone,
     salesByProduct,
+    lowRatings,
   });
 }

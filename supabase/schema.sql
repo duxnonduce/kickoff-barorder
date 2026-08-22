@@ -104,6 +104,9 @@ create table if not exists orders (
   reject_reason text,
   coupon_code text,
   discount_amount numeric(10,2) not null default 0,
+  rating int check (rating between 1 and 5),
+  rating_comment text,
+  rated_at timestamptz,
   created_at timestamptz default now(),
   accepted_at timestamptz,
   completed_at timestamptz,
@@ -166,6 +169,16 @@ create table if not exists coupons (
   created_at timestamptz default now()
 );
 
+-- ---------- RICHIESTE ASSISTENZA ----------
+create table if not exists assistance_requests (
+  id uuid primary key default gen_random_uuid(),
+  table_id uuid references tables(id),
+  type text not null check (type in ('staff', 'bill')),
+  status text not null default 'pending' check (status in ('pending', 'resolved')),
+  created_at timestamptz default now(),
+  resolved_at timestamptz
+);
+
 -- ---------- ORARI DI APERTURA ----------
 -- day_of_week: 0 = domenica, 1 = lunedì, ... 6 = sabato (come JS Date.getDay())
 create table if not exists opening_hours (
@@ -204,6 +217,9 @@ alter table product_options enable row level security;
 alter table order_item_options enable row level security;
 alter table coupons enable row level security;
 -- coupons: nessuna policy pubblica di proposito (vedi commento sulla tabella)
+alter table assistance_requests enable row level security;
+create policy "lettura pubblica richieste assistenza" on assistance_requests for select using (true);
+create policy "creazione pubblica richieste assistenza" on assistance_requests for insert with check (true);
 
 create policy "lettura pubblica zone" on zones for select using (true);
 create policy "lettura pubblica postazioni" on tables for select using (true);
@@ -229,6 +245,7 @@ create policy "lettura opzioni scelte pubblica" on order_item_options for select
 -- ============================================================
 alter publication supabase_realtime add table orders;
 alter publication supabase_realtime add table products;
+alter publication supabase_realtime add table assistance_requests;
 
 -- ============================================================
 -- DATI DI PARTENZA (puoi modificarli/eliminarli dal pannello Admin)

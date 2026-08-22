@@ -30,18 +30,21 @@ function BarDashboard({ pin }) {
   const [receiptOrder, setReceiptOrder] = useState(null);
   const [connected, setConnected] = useState(true);
   const [rejectingOrder, setRejectingOrder] = useState(null);
+  const [assistance, setAssistance] = useState([]);
 
   async function loadAll() {
-    const [{ data: o }, { data: t }, { data: z }, { data: p }] = await Promise.all([
+    const [{ data: o }, { data: t }, { data: z }, { data: p }, { data: a }] = await Promise.all([
       supabase.from("orders").select("*, order_items(*, order_item_options(*))").order("created_at", { ascending: false }).limit(60),
       supabase.from("tables").select("*"),
       supabase.from("zones").select("*"),
       supabase.from("products").select("*").order("name"),
+      supabase.from("assistance_requests").select("*").eq("status", "pending").order("created_at"),
     ]);
     setOrders(o || []);
     setTables(t || []);
     setZones(z || []);
     setProducts(p || []);
+    setAssistance(a || []);
   }
 
   useEffect(() => {
@@ -49,6 +52,7 @@ function BarDashboard({ pin }) {
     const channel = supabase
       .channel("bar-orders")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadAll())
+      .on("postgres_changes", { event: "*", schema: "public", table: "assistance_requests" }, () => loadAll())
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           setConnected(true);
@@ -59,6 +63,15 @@ function BarDashboard({ pin }) {
       });
     return () => supabase.removeChannel(channel);
   }, []);
+
+  async function resolveAssistance(id) {
+    await fetch(`/api/assistance/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    loadAll();
+  }
 
   const tableOf = (id) => tables.find((t) => t.id === id);
   const zoneOf = (id) => zones.find((z) => z.id === id);
@@ -109,6 +122,26 @@ function BarDashboard({ pin }) {
           ))}
         </div>
       </div>
+
+      {tab === "coda" && assistance.length > 0 && (
+        <div className="mb-5 bg-rose-50 border border-rose-200 rounded-xl p-3">
+          <div className="text-xs font-bold uppercase tracking-wider text-rose-800 mb-2">🔔 Richieste in sospeso ({assistance.length})</div>
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2">
+            {assistance.map((a) => {
+              const table = tableOf(a.table_id);
+              return (
+                <div key={a.id} className="bg-white border border-rose-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
+                  <div className="text-xs">
+                    <div className="font-bold">{table?.label || "—"}</div>
+                    <div className="text-stone-500">{a.type === "staff" ? "Chiama staff" : "Richiede il conto"}</div>
+                  </div>
+                  <button onClick={() => resolveAssistance(a.id)} className="text-[11px] font-semibold px-2 py-1 rounded-full bg-stone-900 text-white shrink-0">Risolto</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {tab === "coda" && upcoming.length > 0 && (
         <div className="mb-5 bg-amber-50 border border-amber-200 rounded-xl p-3">

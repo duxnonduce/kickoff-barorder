@@ -88,6 +88,7 @@ export default function OrderPage() {
   const [reorderDismissed, setReorderDismissed] = useState(false);
   const [customizeProduct, setCustomizeProduct] = useState(null);
   const [suggestion, setSuggestion] = useState(null);
+  const [assistanceSent, setAssistanceSent] = useState(null); // "staff" | "bill" | null
   const [dietFilters, setDietFilters] = useState([]);
   const [couponCode, setCouponCode] = useState("");
   const [couponApplied, setCouponApplied] = useState(null); // { code, discount_amount, message }
@@ -159,6 +160,14 @@ export default function OrderPage() {
     }
     loadCustomerData();
   }, [customer?.phone]);
+
+  async function requestAssistance(type) {
+    if (!table?.id || assistanceSent) return;
+    setAssistanceSent(type);
+    const { error } = await supabase.from("assistance_requests").insert({ table_id: table.id, type });
+    if (error) setAssistanceSent(null);
+    else setTimeout(() => setAssistanceSent(null), 15000); // permette di richiedere di nuovo dopo un po'
+  }
 
   async function toggleFavorite(productId) {
     if (!customer?.phone) return;
@@ -535,9 +544,26 @@ export default function OrderPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 pb-40">
-      <div className={`flex items-center gap-2 mb-4 px-3 py-2 rounded-lg border ${zs.soft} ${zs.border}`}>
+      <div className={`flex items-center gap-2 mb-2 px-3 py-2 rounded-lg border ${zs.soft} ${zs.border}`}>
         <span className={`text-sm font-semibold ${zs.text}`}>{table.label}</span>
         <span className="text-xs text-stone-500">· {zone?.name}</span>
+      </div>
+
+      <div className="flex items-center gap-2 mb-4">
+        <button
+          onClick={() => requestAssistance("staff")}
+          disabled={!!assistanceSent}
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border border-stone-300 text-stone-600 disabled:opacity-50"
+        >
+          🔔 {assistanceSent === "staff" ? "Staff avvisato" : "Chiama staff"}
+        </button>
+        <button
+          onClick={() => requestAssistance("bill")}
+          disabled={!!assistanceSent}
+          className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg border border-stone-300 text-stone-600 disabled:opacity-50"
+        >
+          🧾 {assistanceSent === "bill" ? "Conto richiesto" : "Richiedi conto"}
+        </button>
       </div>
 
       {orderingStatus.open && orderingStatus.cutoffAt && (
@@ -1162,6 +1188,71 @@ function OrderTrackView({ order, table, zone, onBack }) {
         </div>
         <div className="text-xs text-stone-400 mt-2">Pagamento in contanti/carta al {order.type === "ritiro" ? "ritiro" : "momento della consegna"}.</div>
       </div>
+
+      {order.status === "completato" && <FeedbackWidget order={order} />}
+    </div>
+  );
+}
+
+function FeedbackWidget({ order }) {
+  const [rating, setRating] = useState(order.rating || 0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [submitted, setSubmitted] = useState(!!order.rated_at);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    if (!rating) return;
+    setSubmitting(true);
+    try {
+      await fetch(`/api/orders/${order.id}/rate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating, comment: comment || null }),
+      });
+      setSubmitted(true);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (submitted) {
+    return (
+      <div className="text-left bg-emerald-50 border border-emerald-200 rounded-xl p-4 mt-4 text-sm text-emerald-800">
+        Grazie per il tuo feedback! 🙌
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-left bg-white border border-stone-200 rounded-xl p-4 mt-4">
+      <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Come è andata?</div>
+      <div className="flex gap-1 mb-3">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            onMouseEnter={() => setHoverRating(n)}
+            onMouseLeave={() => setHoverRating(0)}
+            onClick={() => setRating(n)}
+            className="text-2xl leading-none"
+          >
+            {(hoverRating || rating) >= n ? "⭐" : "☆"}
+          </button>
+        ))}
+      </div>
+      <input
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        placeholder="Vuoi dirci qualcosa in più? (facoltativo)"
+        className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2 mb-3"
+      />
+      <button
+        onClick={submit}
+        disabled={!rating || submitting}
+        className="w-full bg-stone-900 text-white text-sm font-semibold rounded-lg py-2.5 disabled:opacity-40"
+      >
+        {submitting ? "Invio…" : "Invia feedback"}
+      </button>
     </div>
   );
 }

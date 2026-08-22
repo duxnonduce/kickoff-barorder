@@ -699,6 +699,7 @@ function AnalyticsPanel({ pin }) {
             <KpiCard label="Ritiri" value={data.kpis.pickupCount} />
             <KpiCard label="Consegne" value={data.kpis.deliveryCount} />
             <KpiCard label="Rifiutati" value={data.kpis.rejectedCount} accent={data.kpis.rejectedCount > 0 ? "rose" : undefined} />
+            <KpiCard label="Valutazione media" value={data.kpis.avgRating != null ? `⭐ ${data.kpis.avgRating.toFixed(1)}` : "—"} />
           </div>
 
           <div className="mb-6">
@@ -745,6 +746,23 @@ function AnalyticsPanel({ pin }) {
               </div>
             </div>
           </div>
+
+          {data.lowRatings?.length > 0 && (
+            <div className="mt-6">
+              <div className="text-xs font-bold uppercase tracking-wider text-rose-700 mb-2">Valutazioni basse da rivedere</div>
+              <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+                {data.lowRatings.map((r, i) => (
+                  <div key={i} className="px-4 py-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">{r.code}</span>
+                      <span className="text-sm">{"⭐".repeat(r.rating)}</span>
+                    </div>
+                    {r.comment && <div className="text-xs text-stone-500 mt-0.5">{r.comment}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
