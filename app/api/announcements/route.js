@@ -14,7 +14,7 @@ export async function GET() {
 
 // Creazione: bar e admin possono entrambi pubblicare un avviso.
 export async function POST(req) {
-  const { pin, message } = await req.json();
+  const { pin, message, publish_from, publish_until, target } = await req.json();
   if (!checkPin(pin, "bar")) {
     return NextResponse.json({ error: "PIN non valido" }, { status: 401 });
   }
@@ -23,7 +23,12 @@ export async function POST(req) {
   }
   const { data, error } = await supabaseAdmin
     .from("announcements")
-    .insert({ message: message.trim() })
+    .insert({
+      message: message.trim(),
+      publish_from: publish_from || null,
+      publish_until: publish_until || null,
+      target: target || "all",
+    })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -212,6 +212,9 @@ create table if not exists announcements (
   id uuid primary key default gen_random_uuid(),
   message text not null,
   active boolean not null default true,
+  publish_from timestamptz,
+  publish_until timestamptz,
+  target text not null default 'all' check (target in ('all', 'piscina', 'campi', 'bar')),
   created_at timestamptz default now()
 );
 

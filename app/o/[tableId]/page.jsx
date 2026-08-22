@@ -131,6 +131,48 @@ export default function OrderPage() {
 
   const fmtTime = (d) => d?.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 
+  const visibleAnnouncements = useMemo(() => {
+    const now = new Date();
+    return announcements.filter((a) => {
+      if (a.publish_from && now < new Date(a.publish_from)) return false;
+      if (a.publish_until && now > new Date(a.publish_until)) return false;
+      if (a.target && a.target !== "all" && a.target !== zone?.type) return false;
+      return true;
+    });
+  }, [announcements, zone]);
+
+  const hasAnyHappyHour = products.some((p) => p.happy_price != null);
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!hasAnyHappyHour) return;
+    const id = setInterval(() => forceTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [hasAnyHappyHour]);
+
+  const activeHappyHourUntil = useMemo(() => {
+    if (!hasAnyHappyHour) return null;
+    const activeUntils = products
+      .filter((p) => isHappyHourActive(p) && p.happy_until)
+      .map((p) => p.happy_until);
+    if (activeUntils.length === 0) return null;
+    return activeUntils.sort()[0]; // il primo a scadere
+  }, [products, hasAnyHappyHour]);
+
+  const happyHourCountdown = useMemo(() => {
+    if (!activeHappyHourUntil) return null;
+    const now = new Date();
+    const [h, m, s] = activeHappyHourUntil.split(":").map(Number);
+    const target = new Date(now);
+    target.setHours(h, m, s || 0, 0);
+    const diffMs = target - now;
+    if (diffMs <= 0) return null;
+    const totalSec = Math.floor(diffMs / 1000);
+    const hh = Math.floor(totalSec / 3600);
+    const mm = Math.floor((totalSec % 3600) / 60);
+    const ss = totalSec % 60;
+    return `${hh > 0 ? hh + "h " : ""}${String(mm).padStart(2, "0")}m ${String(ss).padStart(2, "0")}s`;
+  }, [activeHappyHourUntil]);
+
   useEffect(() => {
     const saved = typeof window !== "undefined" && window.localStorage.getItem(CUSTOMER_STORAGE_KEY);
     if (saved) {
@@ -572,12 +614,18 @@ export default function OrderPage() {
         </div>
       )}
 
-      {announcements.map((a) => (
+      {visibleAnnouncements.map((a) => (
         <div key={a.id} className="mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2 text-sm">
           <Megaphone className="h-4 w-4 shrink-0 mt-0.5" />
           <span>{a.message}</span>
         </div>
       ))}
+
+      {happyHourCountdown && (
+        <div className="mb-4 flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-900 rounded-lg px-3 py-2 text-sm font-medium">
+          🔥 Happy Hour attiva — termina tra {happyHourCountdown}
+        </div>
+      )}
 
       {!orderingStatus.open && (
         <div className="mb-6 bg-stone-100 border border-stone-200 rounded-xl p-4 text-sm text-stone-600">
