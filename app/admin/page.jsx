@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { supabase } from "@/lib/supabaseClient";
 import PinGate from "@/components/PinGate";
 import HoursAndAnnouncements from "@/components/HoursAndAnnouncements";
-import { Plus, Trash2, Tag, Settings2, Sliders, X, Info } from "lucide-react";
+import { Plus, Trash2, Tag, Settings2, Sliders, X, Info, TrendingUp, Download } from "lucide-react";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kickoff-ordina.vercel.app";
 
@@ -109,6 +109,7 @@ function AdminDashboard({ pin }) {
     { id: "zone", label: "Zone & sovrapprezzi" },
     { id: "clienti", label: "Clienti" },
     { id: "orari", label: "Orari & Avvisi" },
+    { id: "analytics", label: "Analytics" },
   ];
 
   return (
@@ -258,6 +259,7 @@ function AdminDashboard({ pin }) {
         </div>
       )}
       {tab === "orari" && <HoursAndAnnouncements pin={pin} />}
+      {tab === "analytics" && <AnalyticsPanel pin={pin} />}
 
       {optionsProduct && (
         <ProductOptionsModal product={optionsProduct} pin={pin} onClose={() => setOptionsProduct(null)} />
@@ -477,6 +479,7 @@ function ProductDetailsModal({ product, pin, onClose, onSaved }) {
     track_stock: product.track_stock || false,
     stock_qty: product.stock_qty ?? "",
     low_stock_threshold: product.low_stock_threshold ?? 5,
+    cost_price: product.cost_price ?? "",
     unavailable_note: product.unavailable_note || "",
     ...Object.fromEntries(TAG_OPTIONS.map((t) => [t.key, !!product[t.key]])),
   });
@@ -518,6 +521,15 @@ function ProductDetailsModal({ product, pin, onClose, onSaved }) {
           onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
           placeholder="https://…"
           className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2 mb-3"
+        />
+
+        <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">Costo (facoltativo, per il margine)</label>
+        <input
+          value={form.cost_price}
+          onChange={(e) => setForm((f) => ({ ...f, cost_price: e.target.value }))}
+          placeholder="Es. 0.70"
+          type="number" step="0.10"
+          className="w-28 text-sm border border-stone-300 rounded-lg px-3 py-2 mb-3"
         />
 
         <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2 block">Tag</label>
@@ -571,6 +583,146 @@ function ProductDetailsModal({ product, pin, onClose, onSaved }) {
           {saving ? "Salvo…" : "Salva dettagli"}
         </button>
       </div>
+    </div>
+  );
+}
+
+function startOfRange(preset) {
+  const now = new Date();
+  const from = new Date(now);
+  if (preset === "today") from.setHours(0, 0, 0, 0);
+  if (preset === "7d") { from.setDate(from.getDate() - 6); from.setHours(0, 0, 0, 0); }
+  if (preset === "30d") { from.setDate(from.getDate() - 29); from.setHours(0, 0, 0, 0); }
+  return from;
+}
+
+function fmtDuration(seconds) {
+  if (seconds == null) return "—";
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}m ${s}s`;
+}
+
+function AnalyticsPanel({ pin }) {
+  const [preset, setPreset] = useState("today");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    const from = startOfRange(preset).toISOString();
+    const to = new Date().toISOString();
+    const res = await fetch(`/api/analytics?pin=${encodeURIComponent(pin)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    if (res.ok) setData(await res.json());
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [preset]);
+
+  function exportCsv() {
+    if (!data) return;
+    const rows = [["Prodotto", "Quantità", "Ricavi €", "Margine €"]];
+    data.salesByProduct.forEach((p) => rows.push([p.name, p.qty, p.revenue.toFixed(2), p.margin != null ? p.margin.toFixed(2) : ""]));
+    const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vendite-${preset}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const presets = [
+    { id: "today", label: "Oggi" },
+    { id: "7d", label: "Ultimi 7 giorni" },
+    { id: "30d", label: "Ultimo mese" },
+  ];
+
+  const maxHour = data ? Math.max(1, ...data.ordersByHour) : 1;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex gap-1 bg-stone-100 p-1 rounded-lg text-sm w-fit">
+          {presets.map((p) => (
+            <button key={p.id} onClick={() => setPreset(p.id)} className={`px-3 py-1.5 rounded-md font-medium ${preset === p.id ? "bg-white shadow-sm" : "text-stone-500"}`}>{p.label}</button>
+          ))}
+        </div>
+        <button onClick={exportCsv} disabled={!data} className="flex items-center gap-1.5 text-xs font-semibold border border-stone-300 text-stone-600 px-3 py-1.5 rounded-lg disabled:opacity-40">
+          <Download className="h-3.5 w-3.5" /> Esporta CSV
+        </button>
+      </div>
+
+      {loading && <div className="text-sm text-stone-400 py-10 text-center">Calcolo le statistiche…</div>}
+
+      {!loading && data && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <KpiCard label="Ordini" value={data.kpis.totalOrders} />
+            <KpiCard label="Fatturato" value={`€${data.kpis.totalRevenue.toFixed(2)}`} />
+            <KpiCard label="Scontrino medio" value={`€${data.kpis.avgTicket.toFixed(2)}`} />
+            <KpiCard label="Tempo medio prep." value={fmtDuration(data.kpis.avgPrepSeconds)} />
+            <KpiCard label="Ritiri" value={data.kpis.pickupCount} />
+            <KpiCard label="Consegne" value={data.kpis.deliveryCount} />
+            <KpiCard label="Rifiutati" value={data.kpis.rejectedCount} accent={data.kpis.rejectedCount > 0 ? "rose" : undefined} />
+          </div>
+
+          <div className="mb-6">
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2 flex items-center gap-1.5">
+              <TrendingUp className="h-3.5 w-3.5" /> Ordini per fascia oraria
+            </div>
+            <div className="bg-white border border-stone-200 rounded-xl p-4 flex items-end gap-1 h-32">
+              {data.ordersByHour.map((count, h) => (
+                <div key={h} className="flex-1 flex flex-col items-center justify-end h-full" title={`${h}:00 — ${count} ordini`}>
+                  <div className="w-full bg-teal-600 rounded-t" style={{ height: `${(count / maxHour) * 100}%`, minHeight: count > 0 ? 2 : 0 }} />
+                  {h % 3 === 0 && <div className="text-[9px] text-stone-400 mt-1">{h}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-5">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">Vendite per zona</div>
+              <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+                {data.salesByZone.length === 0 && <div className="text-sm text-stone-400 italic px-4 py-4 text-center">Nessun dato</div>}
+                {data.salesByZone.map((z) => (
+                  <div key={z.zone_name} className="flex items-center justify-between px-4 py-2.5">
+                    <span className="text-sm">{z.zone_name}</span>
+                    <span className="text-sm font-semibold tabular-nums">€{z.total.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-stone-500 mb-2">Prodotti più venduti</div>
+              <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+                {data.salesByProduct.length === 0 && <div className="text-sm text-stone-400 italic px-4 py-4 text-center">Nessun dato</div>}
+                {data.salesByProduct.slice(0, 8).map((p) => (
+                  <div key={p.name} className="flex items-center justify-between px-4 py-2.5">
+                    <div>
+                      <div className="text-sm">{p.name}</div>
+                      <div className="text-xs text-stone-400">{p.qty} pz{p.margin != null ? ` · margine €${p.margin.toFixed(2)}` : ""}</div>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums">€{p.revenue.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function KpiCard({ label, value, accent }) {
+  return (
+    <div className="bg-white border border-stone-200 rounded-xl p-3">
+      <div className={`text-xl font-bold tabular-nums ${accent === "rose" ? "text-rose-600" : "text-stone-900"}`}>{value}</div>
+      <div className="text-xs text-stone-400 mt-0.5">{label}</div>
     </div>
   );
 }

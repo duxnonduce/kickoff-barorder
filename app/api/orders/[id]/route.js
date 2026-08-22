@@ -17,6 +17,7 @@ export async function PATCH(req, { params }) {
 
   const patch = { status };
   if (status === "accettato") patch.accepted_at = new Date().toISOString();
+  if (status === "completato") patch.completed_at = new Date().toISOString();
   if (status === "rifiutato" && reject_reason) patch.reject_reason = reject_reason;
 
   const { data, error } = await supabaseAdmin

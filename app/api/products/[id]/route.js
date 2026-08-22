@@ -11,7 +11,7 @@ export async function PATCH(req, { params }) {
   }
 
   const allowedFields = [
-    "available", "price", "name", "prep_min", "category_id", "station",
+    "available", "price", "name", "prep_min", "category_id", "station", "cost_price",
     "description", "image_url",
     "tag_vegetarian", "tag_vegan", "tag_gluten_free", "tag_spicy",
     "tag_recommended", "tag_new", "tag_bestseller",
@@ -24,6 +24,7 @@ export async function PATCH(req, { params }) {
   if (patch.visible_from === "") patch.visible_from = null;
   if (patch.visible_until === "") patch.visible_until = null;
   if (patch.stock_qty === "") patch.stock_qty = null;
+  if (patch.cost_price === "") patch.cost_price = null;
 
   const { data, error } = await supabaseAdmin
     .from("products")

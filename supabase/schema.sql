@@ -40,6 +40,7 @@ create table if not exists products (
   price numeric(10,2) not null,
   available boolean not null default true,
   prep_min int default 5,
+  cost_price numeric(10,2),
   station text not null default 'bar' check (station in ('bar', 'cucina')),
   tag_vegetarian boolean not null default false,
   tag_vegan boolean not null default false,
@@ -99,6 +100,7 @@ create table if not exists orders (
   reject_reason text,
   created_at timestamptz default now(),
   accepted_at timestamptz,
+  completed_at timestamptz,
   printed_at timestamptz
 );
 
