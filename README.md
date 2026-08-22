@@ -106,6 +106,22 @@ Per attivarlo:
 Se non configuri queste variabili, il sito funziona comunque normalmente:
 il cron gira ma non invia nulla, senza errori.
 
+## QR temporanei e antifrode
+
+Ogni postazione ha un **token** separato dal suo id, incluso nell'URL del
+QR (`?t=...`). Due cose sbloccate da questo:
+
+- **"Rigenera QR"** in `/admin → Postazioni & QR`: se sospetti che un QR
+  sia stato fotografato e usato per ordinare da fuori dal centro, premi
+  questo bottone — il QR vecchio smette immediatamente di funzionare
+  (il cliente vede "Questo QR non è più valido"), e ne generi uno nuovo
+  da ristampare.
+- **QR temporanei per eventi**: quando crei una postazione, spunta "QR
+  temporaneo per evento" e imposta un intervallo di date — es. un'area
+  dedicata a un torneo, attiva solo dal 30 luglio al 9 agosto. Fuori da
+  quell'intervallo il QR mostra un messaggio invece del menu, senza che
+  tu debba disattivarlo manualmente all'inizio/fine evento.
+
 ## Notifiche push vere
 
 Oltre al suono quando la pagina è aperta, il cliente può attivare

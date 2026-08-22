@@ -54,6 +54,9 @@ function AdminDashboard({ pin, staffName }) {
   const [customers, setCustomers] = useState([]);
   const [newTableZone, setNewTableZone] = useState("");
   const [newTableLabel, setNewTableLabel] = useState("");
+  const [newTableEventMode, setNewTableEventMode] = useState(false);
+  const [newTableFrom, setNewTableFrom] = useState("");
+  const [newTableUntil, setNewTableUntil] = useState("");
   const [newProduct, setNewProduct] = useState({ name: "", price: "", category_id: "", station: "bar" });
   const [qrPreview, setQrPreview] = useState(null);
   const [optionsProduct, setOptionsProduct] = useState(null); // prodotto per cui gestisco varianti/aggiunte
@@ -90,9 +93,27 @@ function AdminDashboard({ pin, staffName }) {
     await fetch("/api/tables", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin, zone_id: newTableZone, label: newTableLabel.trim() }),
+      body: JSON.stringify({
+        pin,
+        zone_id: newTableZone,
+        label: newTableLabel.trim(),
+        valid_from: newTableEventMode && newTableFrom ? new Date(newTableFrom).toISOString() : null,
+        valid_until: newTableEventMode && newTableUntil ? new Date(newTableUntil).toISOString() : null,
+      }),
     });
     setNewTableLabel("");
+    setNewTableFrom("");
+    setNewTableUntil("");
+    loadAll();
+  }
+
+  async function regenerateQrToken(id) {
+    await fetch(`/api/tables/${id}/regenerate-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    logActivity("QR rigenerato", "Il QR stampato in precedenza per questa postazione non è più valido");
     loadAll();
   }
 
@@ -174,7 +195,7 @@ function AdminDashboard({ pin, staffName }) {
 
       {tab === "postazioni" && (
         <div>
-          <div className="flex flex-wrap gap-2 mb-6 bg-white border border-stone-200 rounded-xl p-3">
+          <div className="flex flex-wrap gap-2 mb-2 bg-white border border-stone-200 rounded-xl p-3">
             <select value={newTableZone} onChange={(e) => setNewTableZone(e.target.value)} className="text-sm border border-stone-300 rounded-md px-2 py-1.5">
               {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
             </select>
@@ -182,6 +203,19 @@ function AdminDashboard({ pin, staffName }) {
             <button onClick={addTable} className="flex items-center gap-1 text-sm font-semibold bg-stone-900 text-white px-3 py-1.5 rounded-md">
               <Plus className="h-3.5 w-3.5" /> Genera postazione + QR
             </button>
+          </div>
+          <div className="mb-6 px-1">
+            <label className="flex items-center gap-1.5 text-xs text-stone-500 mb-1.5">
+              <input type="checkbox" checked={newTableEventMode} onChange={(e) => setNewTableEventMode(e.target.checked)} />
+              QR temporaneo per evento (valido solo in un intervallo di date)
+            </label>
+            {newTableEventMode && (
+              <div className="flex items-center gap-2">
+                <input type="datetime-local" value={newTableFrom} onChange={(e) => setNewTableFrom(e.target.value)} className="text-xs border border-stone-300 rounded-md px-2 py-1.5" />
+                <span className="text-stone-300 text-xs">–</span>
+                <input type="datetime-local" value={newTableUntil} onChange={(e) => setNewTableUntil(e.target.value)} className="text-xs border border-stone-300 rounded-md px-2 py-1.5" />
+              </div>
+            )}
           </div>
 
           {zones.map((z) => {
@@ -193,7 +227,7 @@ function AdminDashboard({ pin, staffName }) {
                 </div>
                 <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {zTables.map((t) => (
-                    <TableCard key={t.id} table={t} onPreview={() => setQrPreview(t)} onRemove={() => removeTable(t.id, t.label)} />
+                    <TableCard key={t.id} table={t} onPreview={() => setQrPreview(t)} onRemove={() => removeTable(t.id, t.label)} onRegenerate={() => regenerateQrToken(t.id)} />
                   ))}
                 </div>
               </div>
@@ -501,16 +535,20 @@ function ProductOptionsModal({ product, pin, onClose }) {
   );
 }
 
-function TableCard({ table, onPreview, onRemove }) {
+function TableCard({ table, onPreview, onRemove, onRegenerate }) {
   const [dataUrl, setDataUrl] = useState(null);
-  const url = `${SITE_URL}/o/${table.id}`;
+  const url = `${SITE_URL}/o/${table.id}?t=${table.qr_token}`;
+  const now = new Date();
+  const isEventTable = table.valid_from || table.valid_until;
+  const isExpired = table.valid_until && now > new Date(table.valid_until);
+  const notYetValid = table.valid_from && now < new Date(table.valid_from);
 
   useEffect(() => {
     QRCode.toDataURL(url, { width: 128, margin: 1 }).then(setDataUrl);
   }, [url]);
 
   return (
-    <div className="border border-stone-200 rounded-xl p-3 bg-white">
+    <div className={`border rounded-xl p-3 bg-white ${isExpired ? "border-rose-200 opacity-60" : "border-stone-200"}`}>
       <div className="flex gap-3">
         <button onClick={onPreview}>
           {dataUrl ? <img src={dataUrl} alt="QR" className="h-16 w-16 rounded-sm" /> : <div className="h-16 w-16 bg-stone-100 rounded-sm" />}
@@ -518,8 +556,15 @@ function TableCard({ table, onPreview, onRemove }) {
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold truncate">{table.label}</div>
           <div className="text-[11px] text-stone-400 font-mono truncate">/o/{table.id.slice(0, 8)}…</div>
-          <div className="flex gap-2 mt-1.5">
+          {isEventTable && (
+            <div className={`text-[11px] mt-0.5 ${isExpired ? "text-rose-500" : "text-amber-600"}`}>
+              {isExpired ? "Scaduto" : notYetValid ? "Non ancora attivo" : "Evento attivo"}
+              {table.valid_until && ` · fino al ${new Date(table.valid_until).toLocaleDateString("it-IT")}`}
+            </div>
+          )}
+          <div className="flex gap-2 mt-1.5 flex-wrap">
             <button onClick={onPreview} className="text-[11px] font-semibold text-stone-600">Vedi QR</button>
+            <button onClick={onRegenerate} className="text-[11px] font-semibold text-amber-600">Rigenera QR</button>
             <button onClick={onRemove} className="text-[11px] font-semibold text-rose-500">Elimina</button>
           </div>
         </div>
@@ -530,7 +575,7 @@ function TableCard({ table, onPreview, onRemove }) {
 
 function QrModal({ table, onClose }) {
   const [dataUrl, setDataUrl] = useState(null);
-  const url = `${SITE_URL}/o/${table.id}`;
+  const url = `${SITE_URL}/o/${table.id}?t=${table.qr_token}`;
 
   useEffect(() => {
     QRCode.toDataURL(url, { width: 400, margin: 2 }).then(setDataUrl);
@@ -543,6 +588,12 @@ function QrModal({ table, onClose }) {
         {dataUrl && <img src={dataUrl} alt="QR" className="mx-auto" width={220} height={220} />}
         <div className="mt-3 font-bold">{table.label}</div>
         <div className="text-xs text-stone-400 font-mono mb-4 break-all max-w-[220px]">{url}</div>
+        {(table.valid_from || table.valid_until) && (
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+            QR valido {table.valid_from && `dal ${new Date(table.valid_from).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`}
+            {table.valid_until && ` al ${new Date(table.valid_until).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`}
+          </div>
+        )}
         <div className="text-xs text-stone-400 mb-4">Da stampare e plastificare, poi fissare alla postazione.</div>
         <a href={dataUrl} download={`qr-${table.label}.png`} className="text-sm font-semibold bg-stone-900 text-white px-4 py-2 rounded-lg inline-block">Scarica PNG</a>
       </div>

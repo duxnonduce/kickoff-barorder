@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useMemo, useState, Suspense } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone, Heart, RotateCcw, StickyNote, X, Trash2, SlidersHorizontal, Bell } from "lucide-react";
 
@@ -63,7 +63,17 @@ function lineUnitPrice(line, product) {
 }
 
 export default function OrderPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen grid place-items-center text-stone-400 text-sm">Carico…</div>}>
+      <OrderPageInner />
+    </Suspense>
+  );
+}
+
+function OrderPageInner() {
   const { tableId } = useParams();
+  const searchParams = useSearchParams();
+  const qrToken = searchParams.get("t");
   const [table, setTable] = useState(null);
   const [zone, setZone] = useState(null);
   const [categories, setCategories] = useState([]);
@@ -74,6 +84,7 @@ export default function OrderPage() {
   const [note, setNote] = useState("");
   const [requestedTime, setRequestedTime] = useState("asap");
   const [loading, setLoading] = useState(true);
+  const [unavailableReason, setUnavailableReason] = useState(null);
   const [placedOrder, setPlacedOrder] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -263,7 +274,12 @@ export default function OrderPage() {
   useEffect(() => {
     async function load() {
       const { data: t } = await supabase.from("tables").select("*").eq("id", tableId).single();
-      if (!t || t.archived_at) { setLoading(false); return; }
+      if (!t) { setUnavailableReason("not_found"); setLoading(false); return; }
+      if (t.archived_at) { setUnavailableReason("not_found"); setLoading(false); return; }
+      if (t.qr_token && qrToken !== t.qr_token) { setUnavailableReason("invalid_token"); setLoading(false); return; }
+      const now = new Date();
+      if (t.valid_from && now < new Date(t.valid_from)) { setUnavailableReason("not_yet_valid"); setLoading(false); return; }
+      if (t.valid_until && now > new Date(t.valid_until)) { setUnavailableReason("expired"); setLoading(false); return; }
       setTable(t);
       const { data: z } = await supabase.from("zones").select("*").eq("id", t.zone_id).single();
       setZone(z);
@@ -593,7 +609,19 @@ export default function OrderPage() {
   }
 
   if (loading) return <div className="min-h-screen grid place-items-center text-stone-400 text-sm">Carico il menu…</div>;
-  if (!table) return <div className="min-h-screen grid place-items-center text-stone-400 text-sm px-6 text-center">Postazione non trovata. Controlla il QR code.</div>;
+  if (!table) {
+    const messages = {
+      invalid_token: "Questo QR non è più valido. Chiedi alla reception un QR aggiornato per questa postazione.",
+      not_yet_valid: "Questo QR non è ancora attivo. Riprova più vicino alla data dell'evento.",
+      expired: "Questo QR è scaduto e non è più utilizzabile.",
+      not_found: "Postazione non trovata. Controlla il QR code.",
+    };
+    return (
+      <div className="min-h-screen grid place-items-center text-stone-400 text-sm px-6 text-center">
+        {messages[unavailableReason] || messages.not_found}
+      </div>
+    );
+  }
 
   if (placedOrder) {
     return <OrderTrackView order={placedOrder} table={table} zone={zone} onBack={() => setPlacedOrder(null)} />;

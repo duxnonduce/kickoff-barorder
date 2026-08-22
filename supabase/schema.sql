@@ -19,9 +19,13 @@ create table if not exists tables (
   id uuid primary key default gen_random_uuid(),
   zone_id uuid references zones(id) on delete cascade,
   label text not null,
+  qr_token text not null default gen_random_uuid()::text,
+  valid_from timestamptz,
+  valid_until timestamptz,
   archived_at timestamptz,
   created_at timestamptz default now()
 );
+create unique index if not exists tables_qr_token_key on tables (qr_token);
 
 -- ---------- CATEGORIE MENU ----------
 create table if not exists categories (
