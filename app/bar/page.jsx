@@ -29,6 +29,7 @@ function BarDashboard({ pin }) {
   const [tab, setTab] = useState("coda");
   const [receiptOrder, setReceiptOrder] = useState(null);
   const [connected, setConnected] = useState(true);
+  const [rejectingOrder, setRejectingOrder] = useState(null);
 
   async function loadAll() {
     const [{ data: o }, { data: t }, { data: z }, { data: p }] = await Promise.all([
@@ -62,11 +63,11 @@ function BarDashboard({ pin }) {
   const tableOf = (id) => tables.find((t) => t.id === id);
   const zoneOf = (id) => zones.find((z) => z.id === id);
 
-  async function setStatus(order, status) {
+  async function setStatus(order, status, reject_reason) {
     const res = await fetch(`/api/orders/${order.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, pin }),
+      body: JSON.stringify({ status, pin, reject_reason }),
     });
     if (res.ok && status === "accettato") setReceiptOrder(order);
     loadAll();
@@ -108,7 +109,7 @@ function BarDashboard({ pin }) {
           <Column title="Nuovi · da accettare" icon={Clock} orders={pending} tableOf={tableOf} zoneOf={zoneOf}
             actions={(o) => (
               <div className="flex gap-2">
-                <button onClick={() => setStatus(o, "rifiutato")} className="flex-1 flex items-center justify-center gap-1 text-xs font-semibold py-1.5 rounded-md border border-rose-300 text-rose-700"><XCircle className="h-3.5 w-3.5" /> Rifiuta</button>
+                <button onClick={() => setRejectingOrder(o)} className="flex-1 flex items-center justify-center gap-1 text-xs font-semibold py-1.5 rounded-md border border-rose-300 text-rose-700"><XCircle className="h-3.5 w-3.5" /> Rifiuta</button>
                 <button onClick={() => setStatus(o, "accettato")} className="flex-1 flex items-center justify-center gap-1 text-xs font-semibold py-1.5 rounded-md bg-stone-900 text-white"><CheckCircle2 className="h-3.5 w-3.5" /> Accetta</button>
               </div>
             )}
@@ -143,6 +144,60 @@ function BarDashboard({ pin }) {
       {tab === "orari" && <HoursAndAnnouncements pin={pin} />}
 
       {receiptOrder && <ReceiptModal order={receiptOrder} table={tableOf(receiptOrder.table_id)} onClose={() => setReceiptOrder(null)} />}
+      {rejectingOrder && (
+        <RejectModal
+          order={rejectingOrder}
+          onClose={() => setRejectingOrder(null)}
+          onConfirm={(reason) => { setStatus(rejectingOrder, "rifiutato", reason); setRejectingOrder(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const REJECT_REASONS = [
+  "Prodotto terminato",
+  "Cucina chiusa",
+  "Impossibile rispettare l'orario richiesto",
+  "Errore nell'ordine",
+  "Altro",
+];
+
+function RejectModal({ order, onClose, onConfirm }) {
+  const [reason, setReason] = useState(REJECT_REASONS[0]);
+  const [customReason, setCustomReason] = useState("");
+
+  return (
+    <div className="fixed inset-0 bg-black/40 grid place-items-center z-30 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="text-sm font-semibold mb-1">Rifiuta ordine {order.code}</div>
+        <p className="text-xs text-stone-500 mb-3">Il cliente vedrà questo motivo, aiuta a evitare confusione.</p>
+        <div className="space-y-1.5 mb-3">
+          {REJECT_REASONS.map((r) => (
+            <label key={r} className="flex items-center gap-2 text-sm">
+              <input type="radio" name="reject_reason" checked={reason === r} onChange={() => setReason(r)} />
+              {r}
+            </label>
+          ))}
+        </div>
+        {reason === "Altro" && (
+          <input
+            value={customReason}
+            onChange={(e) => setCustomReason(e.target.value)}
+            placeholder="Scrivi il motivo"
+            className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2 mb-3"
+          />
+        )}
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 text-sm font-semibold py-2 rounded-lg border border-stone-300">Annulla</button>
+          <button
+            onClick={() => onConfirm(reason === "Altro" ? (customReason.trim() || "Altro") : reason)}
+            className="flex-1 text-sm font-semibold py-2 rounded-lg bg-rose-700 text-white"
+          >
+            Conferma rifiuto
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -175,9 +230,17 @@ function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted }) 
                   : "Il prima possibile"}
               </div>
               <div className="text-xs text-stone-600 space-y-0.5 mb-2">
-                {o.order_items?.map((it) => <div key={it.id}>{it.qty}× {it.name}</div>)}
+                {o.order_items?.map((it) => (
+                  <div key={it.id}>
+                    {it.qty}× {it.name}
+                    {it.note && <span className="text-stone-400 italic"> — {it.note}</span>}
+                  </div>
+                ))}
               </div>
               {o.note && <div className="text-xs italic text-stone-400 mb-2">"{o.note}"</div>}
+              {o.status === "rifiutato" && o.reject_reason && (
+                <div className="text-xs text-rose-600 mb-2">Motivo: {o.reject_reason}</div>
+              )}
               <div className="flex justify-between text-xs font-bold mb-2"><span>Totale</span><span className="tabular-nums">€{Number(o.total).toFixed(2)}</span></div>
               {actions && actions(o)}
             </div>
@@ -209,7 +272,10 @@ function ReceiptModal({ order, table, onClose }) {
           <div>{order.requested_time ? `Ore ${new Date(order.requested_time).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}` : "Il prima possibile"}</div>
           <div className="border-t border-stone-300 my-2" />
           {order.order_items?.map((it) => (
-            <div key={it.id} className="flex justify-between"><span>{it.qty}× {it.name}</span><span>€{(Number(it.price) * it.qty).toFixed(2)}</span></div>
+            <div key={it.id}>
+              <div className="flex justify-between"><span>{it.qty}× {it.name}</span><span>€{(Number(it.price) * it.qty).toFixed(2)}</span></div>
+              {it.note && <div className="text-stone-500 pl-2">↳ {it.note}</div>}
+            </div>
           ))}
           <div className="border-t border-stone-300 my-2" />
           <div className="flex justify-between font-bold"><span>TOTALE</span><span>€{Number(order.total).toFixed(2)}</span></div>

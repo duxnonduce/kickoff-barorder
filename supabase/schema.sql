@@ -57,6 +57,7 @@ create table if not exists customers (
   privacy_accepted_at timestamptz,
   marketing_consent boolean not null default false,
   marketing_consent_at timestamptz,
+  favorite_product_ids uuid[] not null default '{}',
   created_at timestamptz default now()
 );
 
@@ -80,6 +81,7 @@ create table if not exists orders (
   customer_email text,
   requested_time timestamptz, -- null = "il prima possibile"
   client_request_id text,
+  reject_reason text,
   created_at timestamptz default now(),
   accepted_at timestamptz,
   printed_at timestamptz
@@ -92,7 +94,8 @@ create table if not exists order_items (
   product_id uuid references products(id),
   name text not null,
   price numeric(10,2) not null,
-  qty int not null
+  qty int not null,
+  note text
 );
 
 -- ---------- ORARI DI APERTURA ----------

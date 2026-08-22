@@ -4,7 +4,7 @@ import { supabaseAdmin, checkPin } from "@/lib/supabaseAdmin";
 export async function PATCH(req, { params }) {
   const { id } = params;
   const body = await req.json();
-  const { status, pin } = body;
+  const { status, pin, reject_reason } = body;
 
   if (!checkPin(pin, "bar")) {
     return NextResponse.json({ error: "PIN non valido" }, { status: 401 });
@@ -17,6 +17,7 @@ export async function PATCH(req, { params }) {
 
   const patch = { status };
   if (status === "accettato") patch.accepted_at = new Date().toISOString();
+  if (status === "rifiutato" && reject_reason) patch.reject_reason = reject_reason;
 
   const { data, error } = await supabaseAdmin
     .from("orders")

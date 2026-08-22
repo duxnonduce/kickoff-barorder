@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone } from "lucide-react";
+import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone, Heart, RotateCcw, StickyNote } from "lucide-react";
 
 const ZONE_STYLE = {
   piscina: { text: "text-teal-800", soft: "bg-teal-50", border: "border-teal-200" },
@@ -55,6 +55,12 @@ export default function OrderPage() {
   const [clientRequestId, setClientRequestId] = useState(() =>
     (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
   );
+  const [customerRecord, setCustomerRecord] = useState(null); // riga completa da DB (id, preferiti...)
+  const [favorites, setFavorites] = useState([]); // array di product_id
+  const [itemNotes, setItemNotes] = useState({}); // { productId: "senza maionese" }
+  const [openNoteFor, setOpenNoteFor] = useState(null);
+  const [lastOrder, setLastOrder] = useState(null);
+  const [reorderDismissed, setReorderDismissed] = useState(false);
 
   const timeSlots = useMemo(() => generateTimeSlots(todayHours), [todayHours]);
 
@@ -97,6 +103,56 @@ export default function OrderPage() {
   }, []);
 
   useEffect(() => {
+    if (!customer?.phone) return;
+    async function loadCustomerData() {
+      const { data: cust } = await supabase
+        .from("customers")
+        .select("*")
+        .eq("phone", customer.phone)
+        .maybeSingle();
+      if (!cust) return;
+      setCustomerRecord(cust);
+      setFavorites(cust.favorite_product_ids || []);
+
+      const { data: last } = await supabase
+        .from("orders")
+        .select("*, order_items(*)")
+        .eq("customer_id", cust.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (last) setLastOrder(last);
+    }
+    loadCustomerData();
+  }, [customer?.phone]);
+
+  async function toggleFavorite(productId) {
+    if (!customer?.phone) return;
+    const isFav = favorites.includes(productId);
+    setFavorites((prev) => (isFav ? prev.filter((id) => id !== productId) : [...prev, productId])); // ottimistico
+    try {
+      await fetch("/api/customers/favorites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: customer.phone, product_id: productId, action: isFav ? "remove" : "add" }),
+      });
+    } catch {
+      setFavorites((prev) => (isFav ? [...prev, productId] : prev.filter((id) => id !== productId))); // rollback
+    }
+  }
+
+  function reorderLast() {
+    if (!lastOrder) return;
+    const nextCart = {};
+    lastOrder.order_items.forEach((it) => {
+      const stillAvailable = products.find((p) => p.id === it.product_id && p.available);
+      if (stillAvailable) nextCart[it.product_id] = (nextCart[it.product_id] || 0) + it.qty;
+    });
+    setCart(nextCart);
+    setReorderDismissed(true);
+  }
+
+  useEffect(() => {
     async function load() {
       const { data: t } = await supabase.from("tables").select("*").eq("id", tableId).single();
       if (!t || t.archived_at) { setLoading(false); return; }
@@ -127,11 +183,34 @@ export default function OrderPage() {
     const channel = supabase
       .channel(`order-${placedOrder.id}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `id=eq.${placedOrder.id}` }, (payload) => {
-        setPlacedOrder((prev) => ({ ...prev, ...payload.new }));
+        setPlacedOrder((prev) => {
+          if (prev && prev.status !== "pronto" && payload.new.status === "pronto") {
+            playReadyAlert();
+          }
+          return { ...prev, ...payload.new };
+        });
       })
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [placedOrder?.id]);
+
+  function playReadyAlert() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.6);
+    } catch {}
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  }
 
   const cartItems = useMemo(
     () => Object.entries(cart).filter(([, q]) => q > 0).map(([pid, q]) => ({ product: products.find((p) => p.id === pid), qty: q })),
@@ -214,6 +293,7 @@ export default function OrderPage() {
           setPlacedOrder({ ...existing, items: existing.order_items });
           setCart({});
           setNote("");
+          setItemNotes({});
           setCheckoutOpen(false);
           setClientRequestId(crypto.randomUUID());
           return;
@@ -227,6 +307,7 @@ export default function OrderPage() {
         name: i.product.name,
         price: i.product.price,
         qty: i.qty,
+        note: itemNotes[i.product.id] || null,
       }));
       const { error: itemsErr } = await supabase.from("order_items").insert(items);
       if (itemsErr) throw itemsErr;
@@ -234,6 +315,7 @@ export default function OrderPage() {
       setPlacedOrder({ ...order, items });
       setCart({});
       setNote("");
+      setItemNotes({});
       setCheckoutOpen(false);
       setClientRequestId(crypto.randomUUID());
     } catch (e) {
@@ -281,8 +363,40 @@ export default function OrderPage() {
         </div>
       )}
 
+      {lastOrder && !reorderDismissed && orderingStatus.open && cartItems.length === 0 && (
+        <div className="mb-6 flex items-center justify-between gap-3 bg-white border border-stone-200 rounded-xl px-4 py-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <RotateCcw className="h-4 w-4 text-stone-400 shrink-0" />
+            <div className="text-sm text-stone-700 truncate">
+              Vuoi <b>riordinare</b> il tuo ultimo ordine ({lastOrder.order_items.length} prodott{lastOrder.order_items.length === 1 ? "o" : "i"})?
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={reorderLast} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-stone-900 text-white">Riordina</button>
+            <button onClick={() => setReorderDismissed(true)} className="text-xs text-stone-400">No grazie</button>
+          </div>
+        </div>
+      )}
+
       <h1 className="text-2xl font-bold tracking-tight mb-1">Cosa ti portiamo?</h1>
       <p className="text-sm text-stone-500 mb-6">Ordina dal tuo posto. Il bar prepara e ti avvisa.</p>
+
+      {customer && favorites.length > 0 && (() => {
+        const favProducts = products.filter((p) => favorites.includes(p.id) && p.available);
+        if (favProducts.length === 0) return null;
+        return (
+          <div className="mb-7">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2 flex items-center gap-1.5">
+              <Heart className="h-3 w-3 fill-rose-500 text-rose-500" /> I tuoi preferiti
+            </h2>
+            <div className="space-y-2">
+              {favProducts.map((p) => (
+                <ProductRow key={p.id} p={p} cart={cart} addQty={addQty} customer={customer} isFavorite favorites={favorites} toggleFavorite={toggleFavorite} itemNotes={itemNotes} setItemNotes={setItemNotes} openNoteFor={openNoteFor} setOpenNoteFor={setOpenNoteFor} />
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {categories.map((cat) => {
         const items = products.filter((p) => p.category_id === cat.id);
@@ -292,28 +406,7 @@ export default function OrderPage() {
             <h2 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">{cat.name}</h2>
             <div className="space-y-2">
               {items.map((p) => (
-                <div key={p.id} className={`flex items-center justify-between border rounded-xl px-4 py-3 ${p.available ? "border-stone-200 bg-white" : "border-stone-100 bg-stone-50 opacity-60"}`}>
-                  <div>
-                    <div className="font-medium text-sm">{p.name}</div>
-                    <div className="text-xs text-stone-500">
-                      €{Number(p.price).toFixed(2)}
-                      {!p.available && <span className="ml-2 text-rose-600 font-medium">Non disponibile</span>}
-                    </div>
-                  </div>
-                  {p.available ? (
-                    cart[p.id] ? (
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => addQty(p.id, -1)} className="h-7 w-7 grid place-items-center rounded-full border border-stone-300"><Minus className="h-3.5 w-3.5" /></button>
-                        <span className="w-5 text-center text-sm font-semibold tabular-nums">{cart[p.id]}</span>
-                        <button onClick={() => addQty(p.id, 1)} className="h-7 w-7 grid place-items-center rounded-full bg-stone-900 text-white"><Plus className="h-3.5 w-3.5" /></button>
-                      </div>
-                    ) : (
-                      <button onClick={() => addQty(p.id, 1)} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-stone-900 text-white">Aggiungi</button>
-                    )
-                  ) : (
-                    <Ban className="h-4 w-4 text-stone-300" />
-                  )}
-                </div>
+                <ProductRow key={p.id} p={p} cart={cart} addQty={addQty} customer={customer} favorites={favorites} toggleFavorite={toggleFavorite} itemNotes={itemNotes} setItemNotes={setItemNotes} openNoteFor={openNoteFor} setOpenNoteFor={setOpenNoteFor} />
               ))}
             </div>
           </div>
@@ -345,6 +438,66 @@ export default function OrderPage() {
           onSubmit={handleSubmit}
           submitting={submitting} error={error}
         />
+      )}
+    </div>
+  );
+}
+
+function ProductRow({ p, cart, addQty, customer, favorites, toggleFavorite, itemNotes, setItemNotes, openNoteFor, setOpenNoteFor }) {
+  const isFav = favorites.includes(p.id);
+  const hasQty = !!cart[p.id];
+  const noteOpen = openNoteFor === p.id;
+
+  return (
+    <div className={`border rounded-xl px-4 py-3 ${p.available ? "border-stone-200 bg-white" : "border-stone-100 bg-stone-50 opacity-60"}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          {customer && (
+            <button onClick={() => toggleFavorite(p.id)} className="shrink-0">
+              <Heart className={`h-4 w-4 ${isFav ? "fill-rose-500 text-rose-500" : "text-stone-300"}`} />
+            </button>
+          )}
+          <div className="min-w-0">
+            <div className="font-medium text-sm truncate">{p.name}</div>
+            <div className="text-xs text-stone-500">
+              €{Number(p.price).toFixed(2)}
+              {!p.available && <span className="ml-2 text-rose-600 font-medium">Non disponibile</span>}
+            </div>
+          </div>
+        </div>
+        {p.available ? (
+          hasQty ? (
+            <div className="flex items-center gap-2 shrink-0">
+              <button onClick={() => addQty(p.id, -1)} className="h-7 w-7 grid place-items-center rounded-full border border-stone-300"><Minus className="h-3.5 w-3.5" /></button>
+              <span className="w-5 text-center text-sm font-semibold tabular-nums">{cart[p.id]}</span>
+              <button onClick={() => addQty(p.id, 1)} className="h-7 w-7 grid place-items-center rounded-full bg-stone-900 text-white"><Plus className="h-3.5 w-3.5" /></button>
+            </div>
+          ) : (
+            <button onClick={() => addQty(p.id, 1)} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-stone-900 text-white shrink-0">Aggiungi</button>
+          )
+        ) : (
+          <Ban className="h-4 w-4 text-stone-300 shrink-0" />
+        )}
+      </div>
+
+      {hasQty && (
+        <div className="mt-2 pl-0">
+          {noteOpen ? (
+            <input
+              autoFocus
+              value={itemNotes[p.id] || ""}
+              onChange={(e) => setItemNotes((prev) => ({ ...prev, [p.id]: e.target.value }))}
+              onBlur={() => setOpenNoteFor(null)}
+              placeholder="Es. senza cipolla, ben cotto…"
+              className="w-full text-xs border border-stone-300 rounded-lg px-2.5 py-1.5"
+            />
+          ) : (
+            <button onClick={() => setOpenNoteFor(p.id)} className="flex items-center gap-1 text-xs text-stone-400">
+              <StickyNote className="h-3 w-3" />
+              {itemNotes[p.id] ? itemNotes[p.id] : "Aggiungi nota"}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -476,7 +629,9 @@ function OrderTrackView({ order, table, zone, onBack }) {
 
       {order.status === "rifiutato" ? (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-4 text-sm font-medium">
-          Il bar non può accettare questo ordine ora. Riprova tra qualche minuto.
+          {order.reject_reason
+            ? `Il bar non può accettare questo ordine ora: ${order.reject_reason.toLowerCase()}.`
+            : "Il bar non può accettare questo ordine ora. Riprova tra qualche minuto."}
         </div>
       ) : (
         <div>
@@ -497,9 +652,12 @@ function OrderTrackView({ order, table, zone, onBack }) {
       <div className="text-left bg-white border border-stone-200 rounded-xl p-4 mt-2">
         <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Riepilogo</div>
         {order.items?.map((it, i) => (
-          <div key={i} className="flex justify-between text-sm py-0.5">
-            <span>{it.qty}× {it.name}</span>
-            <span className="tabular-nums">€{(Number(it.price) * it.qty).toFixed(2)}</span>
+          <div key={i} className="py-0.5">
+            <div className="flex justify-between text-sm">
+              <span>{it.qty}× {it.name}</span>
+              <span className="tabular-nums">€{(Number(it.price) * it.qty).toFixed(2)}</span>
+            </div>
+            {it.note && <div className="text-xs text-stone-400 italic">{it.note}</div>}
           </div>
         ))}
         <div className="border-t border-stone-100 mt-2 pt-2 flex justify-between text-sm font-bold">
