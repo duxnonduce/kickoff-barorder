@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import PinGate from "@/components/PinGate";
 import HoursAndAnnouncements from "@/components/HoursAndAnnouncements";
-import { Clock, UtensilsCrossed, Receipt, CheckCircle2, XCircle, Printer, CalendarClock } from "lucide-react";
+import { Clock, UtensilsCrossed, Receipt, CheckCircle2, XCircle, Printer, CalendarClock, Waves, Sun, X } from "lucide-react";
 
 const STATUS_LABEL = {
   in_attesa: "In attesa",
@@ -104,7 +104,7 @@ function BarDashboard({ pin }) {
           </span>
         </div>
         <div className="flex gap-1 bg-stone-100 p-1 rounded-lg text-sm">
-          {["coda", "prodotti", "orari"].map((t) => (
+          {["coda", "mappa", "prodotti", "orari"].map((t) => (
             <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-md font-medium capitalize ${tab === t ? "bg-white shadow-sm" : "text-stone-500"}`}>{t === "orari" ? "Orari & Avvisi" : t}</button>
           ))}
         </div>
@@ -171,6 +171,9 @@ function BarDashboard({ pin }) {
         </div>
       )}
 
+      {tab === "mappa" && (
+        <MapPanel zones={zones} tables={tables} orders={orders} setStatus={setStatus} setRejectingOrder={setRejectingOrder} />
+      )}
       {tab === "orari" && <HoursAndAnnouncements pin={pin} />}
 
       {receiptOrder && <ReceiptModal order={receiptOrder} table={tableOf(receiptOrder.table_id)} onClose={() => setReceiptOrder(null)} />}
@@ -377,6 +380,101 @@ function Ticket({ title, order, table, items, showTotal, className = "" }) {
         </>
       )}
       {order.note && <div className="mt-2 text-stone-500">Nota generale: {order.note}</div>}
+    </div>
+  );
+}
+
+const ZONE_MAP_STYLE = {
+  piscina: { icon: Waves, bg: "bg-teal-700", soft: "bg-teal-50", border: "border-teal-200", text: "text-teal-800" },
+  campi: { icon: Sun, bg: "bg-orange-700", soft: "bg-orange-50", border: "border-orange-200", text: "text-orange-800" },
+  bar: { icon: UtensilsCrossed, bg: "bg-stone-700", soft: "bg-stone-50", border: "border-stone-200", text: "text-stone-800" },
+};
+
+function tableDotStatus(table, orders) {
+  const active = orders.filter((o) => o.table_id === table.id && ["in_attesa", "accettato", "pronto"].includes(o.status));
+  if (active.some((o) => o.status === "pronto")) return { color: "bg-sky-500", label: "Pronto da consegnare", order: active.find((o) => o.status === "pronto") };
+  if (active.some((o) => o.status === "accettato")) return { color: "bg-amber-500", label: "In preparazione", order: active.find((o) => o.status === "accettato") };
+  if (active.some((o) => o.status === "in_attesa")) return { color: "bg-rose-500", label: "Nuovo ordine, da accettare", order: active.find((o) => o.status === "in_attesa") };
+  return { color: "bg-emerald-400", label: "Nessun ordine attivo", order: null };
+}
+
+function MapPanel({ zones, tables, orders, setStatus, setRejectingOrder }) {
+  const [selected, setSelected] = useState(null); // ordine selezionato per il popover
+
+  return (
+    <div>
+      <div className="flex items-center gap-4 mb-5 text-xs text-stone-500 flex-wrap">
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /> Libero</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> Da accettare</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> In preparazione</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> Pronto</span>
+      </div>
+
+      <div className="space-y-6">
+        {zones.map((z) => {
+          const zTables = tables.filter((t) => t.zone_id === z.id && !t.archived_at);
+          if (zTables.length === 0) return null;
+          const style = ZONE_MAP_STYLE[z.type] || ZONE_MAP_STYLE.bar;
+          const ZIcon = style.icon;
+          return (
+            <div key={z.id}>
+              <div className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider mb-2 ${style.text}`}>
+                <ZIcon className="h-3.5 w-3.5" /> {z.name}
+              </div>
+              <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2.5">
+                {zTables.map((t) => {
+                  const status = tableDotStatus(t, orders);
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => status.order && setSelected(status.order)}
+                      className={`relative border rounded-xl p-3 text-left ${style.soft} ${style.border} ${status.order ? "cursor-pointer hover:brightness-95" : "cursor-default"}`}
+                    >
+                      <span className={`absolute top-2 right-2 h-2.5 w-2.5 rounded-full ${status.color}`} />
+                      <div className="text-xs font-semibold truncate pr-3">{t.label}</div>
+                      {status.order && <div className="text-[10px] text-stone-500 mt-0.5">{status.order.code}</div>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <div className="fixed inset-0 bg-black/40 grid place-items-center z-30 p-4" onClick={() => setSelected(null)}>
+          <div className="bg-white rounded-xl max-w-sm w-full p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-black text-lg tracking-tight">{selected.code}</span>
+              <button onClick={() => setSelected(null)}><X className="h-4 w-4 text-stone-400" /></button>
+            </div>
+            <div className="text-xs text-stone-500 mb-2">{STATUS_LABEL[selected.status]}</div>
+            <div className="text-xs text-stone-600 space-y-0.5 mb-3">
+              {(selected.order_items || []).map((it) => (
+                <div key={it.id}>
+                  {it.qty}× {it.name}
+                  {it.order_item_options?.length > 0 && <span className="text-stone-400"> ({it.order_item_options.map((o) => o.option_name).join(", ")})</span>}
+                </div>
+              ))}
+            </div>
+            {selected.status === "in_attesa" && (
+              <div className="flex gap-2">
+                <button onClick={() => { setRejectingOrder(selected); setSelected(null); }} className="flex-1 text-xs font-semibold py-1.5 rounded-md border border-rose-300 text-rose-700">Rifiuta</button>
+                <button onClick={() => { setStatus(selected, "accettato"); setSelected(null); }} className="flex-1 text-xs font-semibold py-1.5 rounded-md bg-stone-900 text-white">Accetta</button>
+              </div>
+            )}
+            {selected.status === "accettato" && (
+              <button onClick={() => { setStatus(selected, "pronto"); setSelected(null); }} className="w-full text-xs font-semibold py-1.5 rounded-md bg-emerald-700 text-white">Segna come pronto</button>
+            )}
+            {selected.status === "pronto" && (
+              <button onClick={() => { setStatus(selected, "completato"); setSelected(null); }} className="w-full text-xs font-semibold py-1.5 rounded-md bg-stone-700 text-white">
+                {selected.type === "ritiro" ? "Ritirato" : "Consegnato"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
