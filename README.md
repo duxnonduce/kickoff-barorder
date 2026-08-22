@@ -53,7 +53,7 @@ l'URL definitivo — è quello che viene incorporato nei QR code, quindi vanno
 rigenerati (basta riaprire la pagina Postazioni in Admin) se lo cambi dopo
 averli già stampati.
 
-## 5. Stampa automatica dello scontrino
+## 5. Stampa automatica dello scontrino (comande separate bar/cucina)
 
 Vercel non può parlare direttamente con una stampante che sta sulla rete
 locale del bar. Serve un piccolo agent che gira lì:
@@ -62,12 +62,23 @@ locale del bar. Serve un piccolo agent che gira lì:
    stampante termica (deve supportare stampa via rete/IP, es. Epson TM-T20).
 2. Su quel dispositivo: cartella `print-agent/`, `npm install`,
    configura `print-agent/.env` con URL Supabase, service role key, e
-   l'IP della stampante.
+   l'IP della stampante bar (`PRINTER_IP_BAR`).
 3. Avvialo con `npm start` (consigliato: gestito da `pm2` o da un
    servizio di sistema, così riparte da solo dopo un riavvio).
 
-Da quel momento: ogni volta che il bar preme "Accetta" su un ordine, lo
-scontrino esce in automatico sulla stampante fisica.
+Ogni prodotto in `/admin → Prodotti` ha una **postazione** (Bar o Cucina).
+Quando un ordine contiene prodotti di entrambe, il sistema stampa **due
+comande separate**: quella del bar (con prezzi e totale) e quella della
+cucina (solo articoli e note, senza prezzi — pensata per chi prepara, non
+per l'incasso).
+
+Se hai due stampanti fisiche diverse (una al bar, una in cucina), imposta
+anche `PRINTER_IP_CUCINA` nel `.env` del print-agent: la comanda cucina
+uscirà sulla stampante giusta. Se ne hai solo una, lasciala vuota — usciranno
+comunque due scontrini separati dalla stessa stampante.
+
+Da quel momento: ogni volta che il bar preme "Accetta" su un ordine, le
+comande escono in automatico sulla stampante fisica.
 
 ## Cosa manca per una v2 più robusta
 

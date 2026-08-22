@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin, checkPin } from "@/lib/supabaseAdmin";
 
 export async function POST(req) {
-  const { pin, name, price, category_id, prep_min } = await req.json();
+  const { pin, name, price, category_id, prep_min, station } = await req.json();
   if (!checkPin(pin, "admin")) {
     return NextResponse.json({ error: "PIN non valido" }, { status: 401 });
   }
@@ -11,7 +11,7 @@ export async function POST(req) {
   }
   const { data, error } = await supabaseAdmin
     .from("products")
-    .insert({ name, price, category_id, prep_min: prep_min || 5, available: true })
+    .insert({ name, price, category_id, prep_min: prep_min || 5, station: station === "cucina" ? "cucina" : "bar", available: true })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -229,14 +229,32 @@ function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted }) 
                   ? `Richiesto per le ${new Date(o.requested_time).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`
                   : "Il prima possibile"}
               </div>
-              <div className="text-xs text-stone-600 space-y-0.5 mb-2">
-                {o.order_items?.map((it) => (
-                  <div key={it.id}>
-                    {it.qty}× {it.name}
-                    {it.note && <span className="text-stone-400 italic"> — {it.note}</span>}
-                  </div>
-                ))}
+              <div className="mb-2 space-y-1.5">
+                {["bar", "cucina"].map((station) => {
+                  const stationItems = (o.order_items || []).filter((it) => (it.station || "bar") === station);
+                  if (stationItems.length === 0) return null;
+                  return (
+                    <div key={station}>
+                      <div className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${station === "bar" ? "text-teal-700" : "text-orange-700"}`}>
+                        {station === "bar" ? "🍹 Bar" : "🍳 Cucina"}
+                      </div>
+                      <div className="text-xs text-stone-600 space-y-0.5">
+                        {stationItems.map((it) => (
+                          <div key={it.id}>
+                            {it.qty}× {it.name}
+                            {it.note && <span className="text-stone-400 italic"> — {it.note}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+              {o.order_items?.length > 0 && (
+                <div className="text-[11px] text-stone-400 mb-2">
+                  Tempo stimato: ~{Math.max(...o.order_items.map((it) => it.prep_min || 5))} min
+                </div>
+              )}
               {o.note && <div className="text-xs italic text-stone-400 mb-2">"{o.note}"</div>}
               {o.status === "rifiutato" && o.reject_reason && (
                 <div className="text-xs text-rose-600 mb-2">Motivo: {o.reject_reason}</div>
@@ -252,36 +270,77 @@ function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted }) 
 }
 
 function ReceiptModal({ order, table, onClose }) {
+  const items = order.order_items || [];
+  const barItems = items.filter((it) => (it.station || "bar") === "bar");
+  const kitchenItems = items.filter((it) => it.station === "cucina");
+  const hasBoth = barItems.length > 0 && kitchenItems.length > 0;
+
   return (
     <div className="fixed inset-0 bg-black/40 grid place-items-center z-30 p-4">
-      <div className="bg-white rounded-xl max-w-sm w-full p-5">
+      <div className="bg-white rounded-xl max-w-sm w-full p-5 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center gap-2 text-emerald-700 mb-3">
           <Printer className="h-4 w-4" />
-          <span className="text-sm font-semibold">Scontrino inviato alla stampante di rete</span>
+          <span className="text-sm font-semibold">
+            {hasBoth ? "2 comande inviate alla stampante di rete" : "Scontrino inviato alla stampante di rete"}
+          </span>
         </div>
-        <div className="border border-dashed border-stone-300 rounded-lg p-4 font-mono text-xs bg-stone-50">
-          <div className="flex justify-center mb-2">
-            <img src="/logo-icon.png" alt="KickOff" className="h-8 w-auto" />
-          </div>
-          <div className="text-center font-bold mb-1">KICKOFF · BAR</div>
-          <div className="text-center text-stone-500 mb-2">Ordine {order.code}</div>
-          <div className="border-t border-stone-300 my-2" />
-          <div>{table?.label}</div>
-          <div>{order.type === "ritiro" ? "RITIRO AL BANCO" : "CONSEGNA IN ZONA"}</div>
-          {order.customer_name && <div>{order.customer_name} · {order.customer_phone}</div>}
-          <div>{order.requested_time ? `Ore ${new Date(order.requested_time).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}` : "Il prima possibile"}</div>
-          <div className="border-t border-stone-300 my-2" />
-          {order.order_items?.map((it) => (
-            <div key={it.id}>
-              <div className="flex justify-between"><span>{it.qty}× {it.name}</span><span>€{(Number(it.price) * it.qty).toFixed(2)}</span></div>
-              {it.note && <div className="text-stone-500 pl-2">↳ {it.note}</div>}
-            </div>
-          ))}
-          <div className="border-t border-stone-300 my-2" />
-          <div className="flex justify-between font-bold"><span>TOTALE</span><span>€{Number(order.total).toFixed(2)}</span></div>
-        </div>
+
+        {barItems.length > 0 && (
+          <Ticket
+            title="KICKOFF · BAR"
+            order={order} table={table} items={barItems}
+            showTotal
+          />
+        )}
+
+        {kitchenItems.length > 0 && (
+          <Ticket
+            title="COMANDA CUCINA"
+            order={order} table={table} items={kitchenItems}
+            className={barItems.length > 0 ? "mt-3" : ""}
+          />
+        )}
+
         <button onClick={onClose} className="w-full mt-4 bg-stone-900 text-white text-sm font-semibold rounded-lg py-2">Ok, chiudi</button>
       </div>
+    </div>
+  );
+}
+
+function Ticket({ title, order, table, items, showTotal, className = "" }) {
+  const subtotal = items.reduce((s, it) => s + Number(it.price) * it.qty, 0);
+  return (
+    <div className={`border border-dashed border-stone-300 rounded-lg p-4 font-mono text-xs bg-stone-50 ${className}`}>
+      <div className="flex justify-center mb-2">
+        <img src="/logo-icon.png" alt="KickOff" className="h-8 w-auto" />
+      </div>
+      <div className="text-center font-bold mb-1">{title}</div>
+      <div className="text-center text-stone-500 mb-2">Ordine {order.code}</div>
+      <div className="border-t border-stone-300 my-2" />
+      <div>{table?.label}</div>
+      <div>{order.type === "ritiro" ? "RITIRO AL BANCO" : "CONSEGNA IN ZONA"}</div>
+      {showTotal && order.customer_name && <div>{order.customer_name} · {order.customer_phone}</div>}
+      <div>{order.requested_time ? `Ore ${new Date(order.requested_time).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}` : "Il prima possibile"}</div>
+      <div className="border-t border-stone-300 my-2" />
+      {items.map((it) => (
+        <div key={it.id}>
+          <div className="flex justify-between">
+            <span>{it.qty}× {it.name}</span>
+            {showTotal && <span>€{(Number(it.price) * it.qty).toFixed(2)}</span>}
+          </div>
+          {it.note && <div className="text-stone-500 pl-2">↳ {it.note}</div>}
+        </div>
+      ))}
+      {showTotal && (
+        <>
+          <div className="border-t border-stone-300 my-2" />
+          <div className="flex justify-between font-bold"><span>{items.length === (order.order_items || []).length ? "TOTALE" : "SUBTOTALE BAR"}</span><span>€{subtotal.toFixed(2)}</span></div>
+          {items.length !== (order.order_items || []).length && (
+            <div className="flex justify-between font-bold pt-1"><span>TOTALE ORDINE</span><span>€{Number(order.total).toFixed(2)}</span></div>
+          )}
+        </>
+      )}
+      {order.note && <div className="mt-2 text-stone-500">Nota generale: {order.note}</div>}
     </div>
   );
 }

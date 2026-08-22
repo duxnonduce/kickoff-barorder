@@ -308,6 +308,8 @@ export default function OrderPage() {
         price: i.product.price,
         qty: i.qty,
         note: itemNotes[i.product.id] || null,
+        station: i.product.station || "bar",
+        prep_min: i.product.prep_min || 5,
       }));
       const { error: itemsErr } = await supabase.from("order_items").insert(items);
       if (itemsErr) throw itemsErr;

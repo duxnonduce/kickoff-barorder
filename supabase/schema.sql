@@ -39,6 +39,7 @@ create table if not exists products (
   price numeric(10,2) not null,
   available boolean not null default true,
   prep_min int default 5,
+  station text not null default 'bar' check (station in ('bar', 'cucina')),
   archived_at timestamptz,
   created_at timestamptz default now()
 );
@@ -95,7 +96,9 @@ create table if not exists order_items (
   name text not null,
   price numeric(10,2) not null,
   qty int not null,
-  note text
+  note text,
+  station text not null default 'bar' check (station in ('bar', 'cucina')),
+  prep_min int not null default 5
 );
 
 -- ---------- ORARI DI APERTURA ----------

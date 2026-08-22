@@ -24,7 +24,7 @@ function AdminDashboard({ pin }) {
   const [customers, setCustomers] = useState([]);
   const [newTableZone, setNewTableZone] = useState("");
   const [newTableLabel, setNewTableLabel] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", price: "", category_id: "" });
+  const [newProduct, setNewProduct] = useState({ name: "", price: "", category_id: "", station: "bar" });
   const [qrPreview, setQrPreview] = useState(null);
 
   async function loadAll() {
@@ -77,7 +77,7 @@ function AdminDashboard({ pin }) {
     await fetch("/api/products", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin, name: newProduct.name.trim(), price: parseFloat(newProduct.price), category_id: newProduct.category_id }),
+      body: JSON.stringify({ pin, name: newProduct.name.trim(), price: parseFloat(newProduct.price), category_id: newProduct.category_id, station: newProduct.station }),
     });
     setNewProduct((p) => ({ ...p, name: "", price: "" }));
     loadAll();
@@ -163,6 +163,10 @@ function AdminDashboard({ pin }) {
             <select value={newProduct.category_id} onChange={(e) => setNewProduct((p) => ({ ...p, category_id: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5">
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            <select value={newProduct.station} onChange={(e) => setNewProduct((p) => ({ ...p, station: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5">
+              <option value="bar">🍹 Bar</option>
+              <option value="cucina">🍳 Cucina</option>
+            </select>
             <button onClick={addProduct} className="flex items-center gap-1 text-sm font-semibold bg-stone-900 text-white px-3 py-1.5 rounded-md">
               <Plus className="h-3.5 w-3.5" /> Aggiungi
             </button>
@@ -174,6 +178,14 @@ function AdminDashboard({ pin }) {
                   <div className="text-sm font-medium">{p.name}</div>
                   <div className="text-xs text-stone-400">{categories.find((c) => c.id === p.category_id)?.name}</div>
                 </div>
+                <select
+                  value={p.station || "bar"}
+                  onChange={(e) => updateProductField(p, { station: e.target.value })}
+                  className="text-xs border border-stone-300 rounded-md px-2 py-1.5"
+                >
+                  <option value="bar">🍹 Bar</option>
+                  <option value="cucina">🍳 Cucina</option>
+                </select>
                 <input
                   defaultValue={p.price}
                   type="number" step="0.10"

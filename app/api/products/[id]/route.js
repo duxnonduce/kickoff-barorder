@@ -10,7 +10,7 @@ export async function PATCH(req, { params }) {
     return NextResponse.json({ error: "PIN non valido" }, { status: 401 });
   }
 
-  const allowedFields = ["available", "price", "name", "prep_min", "category_id"];
+  const allowedFields = ["available", "price", "name", "prep_min", "category_id", "station"];
   const patch = {};
   for (const k of allowedFields) if (k in fields) patch[k] = fields[k];
 
