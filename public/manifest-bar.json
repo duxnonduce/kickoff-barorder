@@ -1,8 +1,9 @@
 {
-  "name": "KickOff Ordina",
-  "short_name": "KickOff Ordina",
-  "description": "Ordina dal tuo posto al centro sportivo KickOff",
-  "start_url": "/",
+  "name": "KickOff Ordina — Bar",
+  "short_name": "KO Bar",
+  "description": "Dashboard bar KickOff Ordina",
+  "start_url": "/bar",
+  "scope": "/bar",
   "display": "standalone",
   "background_color": "#F5F2EA",
   "theme_color": "#0E4A47",

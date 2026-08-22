@@ -145,10 +145,27 @@ tempo reale nella pagina (se il cliente la tiene aperta).
 
 ## PWA — installabile su telefono
 
-Il sito è installabile come app: su Android/Chrome compare il prompt
-"Installa app" automaticamente, su iPhone/Safari si fa da menu Condividi →
-"Aggiungi a Home". Utile soprattutto per lo staff, che può tenere `/bar`
-come un'icona sulla home invece di riaprire il browser ogni volta.
+**Solo `/bar` e `/admin`** sono installabili come app — apposta, non tutto
+il sito. Le pagine cliente (`/o/[postazione]`) hanno un URL diverso per
+ogni QR, quindi non ha senso "installarle": vanno sempre aperte dal
+browser scansionando il QR di quella specifica postazione.
+
+Per installare `/bar` o `/admin`:
+- **Android/Chrome**: compare il prompt "Installa app" automaticamente
+- **iPhone/Safari**: menu Condividi → "Aggiungi alla schermata Home",
+  **mentre sei già su `/bar` o `/admin`** — l'app installata si aprirà
+  sempre su quella pagina
+
+Utile soprattutto per lo staff, che può tenere la dashboard come
+un'icona sulla home invece di riaprire il browser ogni volta.
+
+**Nota su iPhone e notifiche push**: Apple permette le notifiche push
+solo dentro un'app installata con un unico URL fisso di partenza. Le
+pagine ordine dei clienti invece hanno un URL diverso per ogni QR, quindi
+su iPhone la funzione "Attiva notifiche" (vedi sotto) resta poco
+affidabile — il suono/vibrazione a pagina aperta restano il modo
+principale con cui un cliente iPhone viene avvisato. Su Android/Chrome e
+computer funziona regolarmente.
 
 ## Cosa manca per una v2 più robusta
 
