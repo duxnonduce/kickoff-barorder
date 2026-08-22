@@ -106,6 +106,27 @@ Per attivarlo:
 Se non configuri queste variabili, il sito funziona comunque normalmente:
 il cron gira ma non invia nulla, senza errori.
 
+## Notifiche push vere
+
+Oltre al suono quando la pagina è aperta, il cliente può attivare
+notifiche push vere (arrivano anche a telefono bloccato/app in
+background) mentre segue un ordine — compare un bottone "Attiva
+notifiche" sotto il codice ordine.
+
+Per attivarle serve una coppia di chiavi VAPID (senza terminale, con un
+generatore online tipo [vapidkeys.com](https://vapidkeys.com)):
+
+1. Genera la coppia di chiavi (pubblica + privata)
+2. Su Vercel, aggiungi le variabili:
+   - `VAPID_PUBLIC_KEY`
+   - `VAPID_PRIVATE_KEY`
+   - `VAPID_SUBJECT` (facoltativa, es. `mailto:tuaemail@esempio.it`)
+3. Redeploy
+
+Senza queste variabili il bottone "Attiva notifiche" semplicemente non
+compare — il resto del sito funziona come prima, con l'aggiornamento in
+tempo reale nella pagina (se il cliente la tiene aperta).
+
 ## PWA — installabile su telefono
 
 Il sito è installabile come app: su Android/Chrome compare il prompt

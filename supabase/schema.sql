@@ -93,7 +93,7 @@ create table if not exists orders (
   zone_id uuid references zones(id),
   type text not null check (type in ('ritiro','consegna')),
   status text not null default 'in_attesa'
-    check (status in ('in_attesa','accettato','pronto','completato','rifiutato')),
+    check (status in ('in_attesa','accettato','pronto','in_consegna','completato','rifiutato')),
   total numeric(10,2) not null,
   note text,
   customer_id uuid references customers(id),
@@ -212,6 +212,17 @@ create table if not exists service_status (
 
 insert into service_status (id) values (1) on conflict (id) do nothing;
 
+-- ---------- NOTIFICHE PUSH ----------
+create table if not exists push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid references orders(id) on delete cascade,
+  endpoint text not null,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz default now(),
+  unique (order_id, endpoint)
+);
+
 -- ---------- ORARI DI APERTURA ----------
 -- day_of_week: 0 = domenica, 1 = lunedì, ... 6 = sabato (come JS Date.getDay())
 create table if not exists opening_hours (
@@ -263,6 +274,9 @@ alter table activity_log enable row level security;
 alter table service_status enable row level security;
 create policy "lettura pubblica stato servizio" on service_status for select using (true);
 -- scrittura: solo via Service Role
+alter table push_subscriptions enable row level security;
+create policy "creazione pubblica iscrizioni push" on push_subscriptions for insert with check (true);
+-- nessuna select/update/delete pubblica: solo via Service Role
 -- nessuna policy pubblica: solo via Service Role
 
 create policy "lettura pubblica zone" on zones for select using (true);

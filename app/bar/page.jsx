@@ -11,6 +11,7 @@ const STATUS_LABEL = {
   in_attesa: "In attesa",
   accettato: "Accettato",
   pronto: "Pronto",
+  in_consegna: "In consegna",
   rifiutato: "Rifiutato",
   completato: "Completato",
 };
@@ -186,7 +187,7 @@ function BarDashboard({ pin, staffName }) {
     .filter((o) => o.requested_time && new Date(o.requested_time).getTime() - now > SOON_THRESHOLD_MS)
     .sort((a, b) => new Date(a.requested_time) - new Date(b.requested_time));
   const pending = allPending.filter((o) => !upcoming.includes(o));
-  const active = orders.filter((o) => o.status === "accettato" || o.status === "pronto");
+  const active = orders.filter((o) => ["accettato", "pronto", "in_consegna"].includes(o.status));
   const done = orders.filter((o) => o.status === "completato" || o.status === "rifiutato").slice(0, 15);
 
   return (
@@ -297,11 +298,15 @@ function BarDashboard({ pin, staffName }) {
             )}
           />
           <Column title="In preparazione" icon={UtensilsCrossed} orders={active} tableOf={tableOf} zoneOf={zoneOf} onReprint={handleReprint} onTogglePriority={togglePriority}
-            actions={(o) => o.status === "accettato" ? (
-              <button onClick={() => setStatus(o, "pronto")} className="w-full text-xs font-semibold py-1.5 rounded-md bg-emerald-700 text-white">Segna come pronto</button>
-            ) : (
-              <button onClick={() => setStatus(o, "completato")} className="w-full text-xs font-semibold py-1.5 rounded-md bg-stone-700 text-white">{o.type === "ritiro" ? "Ritirato" : "Consegnato"}</button>
-            )}
+            actions={(o) => {
+              if (o.status === "accettato") {
+                return <button onClick={() => setStatus(o, "pronto")} className="w-full text-xs font-semibold py-1.5 rounded-md bg-emerald-700 text-white">Segna come pronto</button>;
+              }
+              if (o.status === "pronto" && o.type === "consegna") {
+                return <button onClick={() => setStatus(o, "in_consegna")} className="w-full text-xs font-semibold py-1.5 rounded-md bg-sky-700 text-white">Uscito per la consegna</button>;
+              }
+              return <button onClick={() => setStatus(o, "completato")} className="w-full text-xs font-semibold py-1.5 rounded-md bg-stone-700 text-white">{o.type === "ritiro" ? "Ritirato" : "Consegnato"}</button>;
+            }}
           />
           <Column title="Storico" icon={Receipt} orders={done} tableOf={tableOf} zoneOf={zoneOf} muted onReprint={handleReprint} />
         </div>
@@ -685,7 +690,8 @@ const ZONE_MAP_STYLE = {
 };
 
 function tableDotStatus(table, orders) {
-  const active = orders.filter((o) => o.table_id === table.id && ["in_attesa", "accettato", "pronto"].includes(o.status));
+  const active = orders.filter((o) => o.table_id === table.id && ["in_attesa", "accettato", "pronto", "in_consegna"].includes(o.status));
+  if (active.some((o) => o.status === "in_consegna")) return { color: "bg-violet-500", label: "In consegna", order: active.find((o) => o.status === "in_consegna") };
   if (active.some((o) => o.status === "pronto")) return { color: "bg-sky-500", label: "Pronto da consegnare", order: active.find((o) => o.status === "pronto") };
   if (active.some((o) => o.status === "accettato")) return { color: "bg-amber-500", label: "In preparazione", order: active.find((o) => o.status === "accettato") };
   if (active.some((o) => o.status === "in_attesa")) return { color: "bg-rose-500", label: "Nuovo ordine, da accettare", order: active.find((o) => o.status === "in_attesa") };
@@ -702,6 +708,7 @@ function MapPanel({ zones, tables, orders, setStatus, setRejectingOrder }) {
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> Da accettare</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> In preparazione</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-sky-500" /> Pronto</span>
+        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-violet-500" /> In consegna</span>
       </div>
 
       <div className="space-y-6">
@@ -761,7 +768,10 @@ function MapPanel({ zones, tables, orders, setStatus, setRejectingOrder }) {
             {selected.status === "accettato" && (
               <button onClick={() => { setStatus(selected, "pronto"); setSelected(null); }} className="w-full text-xs font-semibold py-1.5 rounded-md bg-emerald-700 text-white">Segna come pronto</button>
             )}
-            {selected.status === "pronto" && (
+            {selected.status === "pronto" && selected.type === "consegna" && (
+              <button onClick={() => { setStatus(selected, "in_consegna"); setSelected(null); }} className="w-full text-xs font-semibold py-1.5 rounded-md bg-sky-700 text-white">Uscito per la consegna</button>
+            )}
+            {((selected.status === "pronto" && selected.type === "ritiro") || selected.status === "in_consegna") && (
               <button onClick={() => { setStatus(selected, "completato"); setSelected(null); }} className="w-full text-xs font-semibold py-1.5 rounded-md bg-stone-700 text-white">
                 {selected.type === "ritiro" ? "Ritirato" : "Consegnato"}
               </button>

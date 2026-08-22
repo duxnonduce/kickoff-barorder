@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone, Heart, RotateCcw, StickyNote, X, Trash2, SlidersHorizontal } from "lucide-react";
+import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone, Heart, RotateCcw, StickyNote, X, Trash2, SlidersHorizontal, Bell } from "lucide-react";
 
 const ZONE_STYLE = {
   piscina: { text: "text-teal-800", soft: "bg-teal-50", border: "border-teal-200" },
@@ -1220,14 +1220,25 @@ function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTim
 // ---------- Tracking ordine ----------
 
 function OrderTrackView({ order, table, zone, onBack }) {
-  const steps = ["in_attesa", "accettato", "pronto", "completato"];
+  const steps = order.type === "consegna"
+    ? ["in_attesa", "accettato", "pronto", "in_consegna", "completato"]
+    : ["in_attesa", "accettato", "pronto", "completato"];
   const stepLabels = {
     in_attesa: "Inviato",
     accettato: "Accettato dal bar",
-    pronto: order.type === "ritiro" ? "Pronto per il ritiro" : "In consegna",
+    pronto: order.type === "ritiro" ? "Pronto per il ritiro" : "Pronto in cucina",
+    in_consegna: "In consegna verso di te",
     completato: order.type === "ritiro" ? "Ritirato" : "Consegnato",
   };
   const currentIndex = Math.max(0, steps.indexOf(order.status === "rifiutato" ? "in_attesa" : order.status));
+
+  const isRunningLate = useMemo(() => {
+    if (order.status !== "accettato" || !order.accepted_at) return false;
+    const maxPrep = Math.max(5, ...(order.items || []).map((it) => it.prep_min || 5));
+    const expectedReadyAt = new Date(new Date(order.accepted_at).getTime() + maxPrep * 60000);
+    const graceMs = 10 * 60000; // 10 minuti di margine prima di avvisare
+    return Date.now() > expectedReadyAt.getTime() + graceMs;
+  }, [order.status, order.accepted_at, order.items]);
 
   return (
     <div className="max-w-md mx-auto px-4 pt-10 text-center">
@@ -1236,11 +1247,19 @@ function OrderTrackView({ order, table, zone, onBack }) {
       </button>
       <div className="text-6xl font-black tracking-tighter tabular-nums mb-1">{order.code}</div>
       <div className="text-sm text-stone-500 mb-1">{table.label} · {zone?.name}</div>
-      <div className="text-sm text-stone-500 mb-8">
+      <div className="text-sm text-stone-500 mb-6">
         {order.requested_time
           ? `Richiesto per le ${new Date(order.requested_time).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}`
           : "Il prima possibile"}
       </div>
+
+      {order.status !== "rifiutato" && order.status !== "completato" && <PushNotifyButton orderId={order.id} />}
+
+      {isRunningLate && (
+        <div className="mb-6 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 text-sm">
+          Stiamo impiegando qualche minuto in più del previsto — il tuo ordine è comunque in preparazione, grazie per la pazienza! 🙏
+        </div>
+      )}
 
       {order.status === "rifiutato" ? (
         <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-4 text-sm font-medium">
@@ -1349,5 +1368,69 @@ function FeedbackWidget({ order }) {
         {submitting ? "Invio…" : "Invia feedback"}
       </button>
     </div>
+  );
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+function PushNotifyButton({ orderId }) {
+  const [status, setStatus] = useState("idle"); // idle | loading | active | unsupported | denied | error
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setStatus("unsupported");
+      return;
+    }
+    if (Notification.permission === "denied") setStatus("denied");
+  }, []);
+
+  async function activate() {
+    setStatus("loading");
+    try {
+      const keyRes = await fetch("/api/push/vapid-public-key");
+      const { publicKey } = await keyRes.json();
+      if (!publicKey) { setStatus("unsupported"); return; }
+
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") { setStatus("denied"); return; }
+
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+
+      await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: orderId, subscription: subscription.toJSON() }),
+      });
+
+      setStatus("active");
+    } catch {
+      setStatus("error");
+    }
+  }
+
+  if (status === "unsupported" || status === "active") return null; // niente da mostrare/fare
+
+  return (
+    <button
+      onClick={activate}
+      disabled={status === "loading" || status === "denied"}
+      className="mb-6 flex items-center justify-center gap-1.5 mx-auto text-xs font-semibold px-4 py-2 rounded-full border border-stone-300 text-stone-600 disabled:opacity-50"
+    >
+      <Bell className="h-3.5 w-3.5" />
+      {status === "loading" && "Attivo…"}
+      {status === "idle" && "Attiva notifiche per questo ordine"}
+      {status === "denied" && "Notifiche bloccate dal telefono"}
+      {status === "error" && "Riprova ad attivare le notifiche"}
+    </button>
   );
 }

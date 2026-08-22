@@ -1,5 +1,14 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, checkPin } from "@/lib/supabaseAdmin";
+import { sendPushToOrder } from "@/lib/webPush";
+
+const PUSH_MESSAGES = {
+  accettato: { title: "Ordine accettato ✅", body: "Il bar ha accettato il tuo ordine e sta iniziando a prepararlo." },
+  pronto: { title: "Ordine pronto 🎉", body: "Il tuo ordine è pronto!" },
+  in_consegna: { title: "In arrivo 🚴", body: "Il tuo ordine è in consegna verso di te." },
+  completato: { title: "Ordine concluso", body: "Grazie, alla prossima!" },
+  rifiutato: { title: "Ordine non accettato", body: "Il bar non può preparare il tuo ordine in questo momento." },
+};
 
 export async function PATCH(req, { params }) {
   const { id } = params;
@@ -13,7 +22,7 @@ export async function PATCH(req, { params }) {
   const patch = {};
 
   if (status !== undefined) {
-    const allowed = ["accettato", "pronto", "completato", "rifiutato"];
+    const allowed = ["accettato", "pronto", "in_consegna", "completato", "rifiutato"];
     if (!allowed.includes(status)) {
       return NextResponse.json({ error: "Stato non valido" }, { status: 400 });
     }
@@ -48,6 +57,12 @@ export async function PATCH(req, { params }) {
   // e stampa lo scontrino sulla stampante di rete del bar.
   if (status === "accettato") {
     await supabaseAdmin.from("orders").update({ printed_at: null }).eq("id", id);
+  }
+
+  // Notifica push, se il cliente si è iscritto e le chiavi VAPID sono
+  // configurate — best-effort, non blocca mai la risposta.
+  if (status && PUSH_MESSAGES[status]) {
+    sendPushToOrder(id, PUSH_MESSAGES[status]).catch(() => {});
   }
 
   return NextResponse.json({ order: data });
