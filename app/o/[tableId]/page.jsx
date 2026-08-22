@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone, Heart, RotateCcw, StickyNote, X, Trash2 } from "lucide-react";
+import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone, Heart, RotateCcw, StickyNote, X, Trash2, SlidersHorizontal } from "lucide-react";
 
 const ZONE_STYLE = {
   piscina: { text: "text-teal-800", soft: "bg-teal-50", border: "border-teal-200" },
@@ -68,6 +68,7 @@ export default function OrderPage() {
   const [lastOrder, setLastOrder] = useState(null);
   const [reorderDismissed, setReorderDismissed] = useState(false);
   const [customizeProduct, setCustomizeProduct] = useState(null);
+  const [dietFilters, setDietFilters] = useState([]); // es. ["tag_vegetarian", "tag_gluten_free"]
 
   const timeSlots = useMemo(() => generateTimeSlots(todayHours), [todayHours]);
 
@@ -425,6 +426,24 @@ export default function OrderPage() {
 
   const zs = ZONE_STYLE[zone?.type] || ZONE_STYLE.bar;
 
+  function isTimeVisible(p) {
+    if (!p.visible_from && !p.visible_until) return true;
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const toMin = (t) => { const [h, m] = t.slice(0, 5).split(":").map(Number); return h * 60 + m; };
+    const from = p.visible_from ? toMin(p.visible_from) : 0;
+    const until = p.visible_until ? toMin(p.visible_until) : 24 * 60;
+    return nowMin >= from && nowMin <= until;
+  }
+
+  function matchesDietFilters(p) {
+    return dietFilters.every((key) => p[key]);
+  }
+
+  function visibleProductsOf(list) {
+    return list.filter((p) => isTimeVisible(p) && matchesDietFilters(p));
+  }
+
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 pb-40">
       <div className={`flex items-center gap-2 mb-4 px-3 py-2 rounded-lg border ${zs.soft} ${zs.border}`}>
@@ -469,10 +488,27 @@ export default function OrderPage() {
       )}
 
       <h1 className="text-2xl font-bold tracking-tight mb-1">Cosa ti portiamo?</h1>
-      <p className="text-sm text-stone-500 mb-6">Ordina dal tuo posto. Il bar prepara e ti avvisa.</p>
+      <p className="text-sm text-stone-500 mb-4">Ordina dal tuo posto. Il bar prepara e ti avvisa.</p>
+
+      <div className="flex items-center gap-1.5 mb-6 overflow-x-auto pb-1">
+        <SlidersHorizontal className="h-3.5 w-3.5 text-stone-300 shrink-0" />
+        {[
+          { key: "tag_vegetarian", label: "🌱 Vegetariano" },
+          { key: "tag_vegan", label: "🌿 Vegano" },
+          { key: "tag_gluten_free", label: "🌾 Senza glutine" },
+        ].map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setDietFilters((prev) => prev.includes(f.key) ? prev.filter((k) => k !== f.key) : [...prev, f.key])}
+            className={`text-xs font-medium px-3 py-1.5 rounded-full border whitespace-nowrap shrink-0 ${dietFilters.includes(f.key) ? "bg-stone-900 text-white border-stone-900" : "border-stone-300 text-stone-600"}`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
 
       {customer && favorites.length > 0 && (() => {
-        const favProducts = products.filter((p) => favorites.includes(p.id) && p.available);
+        const favProducts = visibleProductsOf(products.filter((p) => favorites.includes(p.id) && p.available));
         if (favProducts.length === 0) return null;
         return (
           <div className="mb-7">
@@ -492,7 +528,7 @@ export default function OrderPage() {
       })()}
 
       {categories.map((cat) => {
-        const items = products.filter((p) => p.category_id === cat.id);
+        const items = visibleProductsOf(products.filter((p) => p.category_id === cat.id));
         if (items.length === 0) return null;
         return (
           <div key={cat.id} className="mb-7">
@@ -552,27 +588,48 @@ export default function OrderPage() {
 
 // ---------- Riga prodotto nel menu ----------
 
+const TAG_BADGES = {
+  tag_vegetarian: "🌱",
+  tag_vegan: "🌿",
+  tag_gluten_free: "🌾",
+  tag_spicy: "🌶️",
+  tag_recommended: "⭐",
+  tag_new: "🆕",
+  tag_bestseller: "🔥",
+};
+
 function ProductRow({ p, cartLines, addSimple, decrementSimple, optionGroups, onCustomize, customer, favorites, toggleFavorite, openNoteFor, setOpenNoteFor, setLineNote }) {
   const isFav = favorites.includes(p.id);
   const hasGroups = (optionGroups || []).length > 0;
   const simpleLine = cartLines.find((l) => l.productId === p.id && (l.options || []).length === 0);
   const totalQtyInCart = cartLines.filter((l) => l.productId === p.id).reduce((s, l) => s + l.qty, 0);
   const noteOpen = simpleLine && openNoteFor === simpleLine.id;
+  const badges = Object.entries(TAG_BADGES).filter(([key]) => p[key]).map(([, emoji]) => emoji);
+  const lowStock = p.track_stock && p.available && (p.stock_qty ?? 0) <= p.low_stock_threshold;
 
   return (
     <div className={`border rounded-xl px-4 py-3 ${p.available ? "border-stone-200 bg-white" : "border-stone-100 bg-stone-50 opacity-60"}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2 min-w-0 flex-1">
           {customer && (
-            <button onClick={() => toggleFavorite(p.id)} className="shrink-0">
+            <button onClick={() => toggleFavorite(p.id)} className="shrink-0 mt-0.5">
               <Heart className={`h-4 w-4 ${isFav ? "fill-rose-500 text-rose-500" : "text-stone-300"}`} />
             </button>
           )}
-          <div className="min-w-0">
-            <div className="font-medium text-sm truncate">{p.name}</div>
+          {p.image_url && (
+            <img src={p.image_url} alt="" className="h-12 w-12 rounded-lg object-cover shrink-0 bg-stone-100" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="font-medium text-sm truncate">
+              {p.name} {badges.length > 0 && <span className="ml-1">{badges.join(" ")}</span>}
+            </div>
+            {p.description && <div className="text-xs text-stone-400 truncate">{p.description}</div>}
             <div className="text-xs text-stone-500">
               €{Number(p.price).toFixed(2)}{hasGroups && <span className="text-stone-400"> +</span>}
-              {!p.available && <span className="ml-2 text-rose-600 font-medium">Non disponibile</span>}
+              {!p.available && (
+                <span className="ml-2 text-rose-600 font-medium">{p.unavailable_note || "Non disponibile"}</span>
+              )}
+              {p.available && lowStock && <span className="ml-2 text-amber-600 font-medium">Ne restano {p.stock_qty}</span>}
               {p.available && hasGroups && totalQtyInCart > 0 && <span className="ml-2 text-emerald-700 font-medium">Nel carrello: {totalQtyInCart}</span>}
             </div>
           </div>

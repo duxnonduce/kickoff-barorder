@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { supabase } from "@/lib/supabaseClient";
 import PinGate from "@/components/PinGate";
 import HoursAndAnnouncements from "@/components/HoursAndAnnouncements";
-import { Plus, Trash2, Tag, Settings2, Sliders, X } from "lucide-react";
+import { Plus, Trash2, Tag, Settings2, Sliders, X, Info } from "lucide-react";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kickoff-ordina.vercel.app";
 
@@ -27,6 +27,7 @@ function AdminDashboard({ pin }) {
   const [newProduct, setNewProduct] = useState({ name: "", price: "", category_id: "", station: "bar" });
   const [qrPreview, setQrPreview] = useState(null);
   const [optionsProduct, setOptionsProduct] = useState(null); // prodotto per cui gestisco varianti/aggiunte
+  const [detailsProduct, setDetailsProduct] = useState(null); // prodotto per cui gestisco foto/tag/stock/orari
 
   async function loadAll() {
     const [{ data: z }, { data: t }, { data: c }, { data: p }] = await Promise.all([
@@ -196,6 +197,14 @@ function AdminDashboard({ pin }) {
                 <button onClick={() => updateProductField(p, { available: !p.available })} className={`text-xs font-semibold px-3 py-1.5 rounded-full ${p.available ? "bg-emerald-100 text-emerald-800" : "bg-stone-200 text-stone-500"}`}>
                   {p.available ? "Attivo" : "Disattivato"}
                 </button>
+                {p.track_stock && (
+                  <span className={`text-[11px] font-semibold px-2 py-1 rounded-full shrink-0 ${(p.stock_qty ?? 0) <= p.low_stock_threshold ? "bg-amber-100 text-amber-800" : "bg-stone-100 text-stone-500"}`}>
+                    {p.stock_qty ?? 0} pz
+                  </span>
+                )}
+                <button onClick={() => setDetailsProduct(p)} className="text-xs font-semibold px-3 py-1.5 rounded-full border border-stone-300 text-stone-600 flex items-center gap-1 shrink-0">
+                  <Info className="h-3 w-3" /> Dettagli
+                </button>
                 <button onClick={() => setOptionsProduct(p)} className="text-xs font-semibold px-3 py-1.5 rounded-full border border-stone-300 text-stone-600 flex items-center gap-1 shrink-0">
                   <Sliders className="h-3 w-3" /> Varianti
                 </button>
@@ -252,6 +261,9 @@ function AdminDashboard({ pin }) {
 
       {optionsProduct && (
         <ProductOptionsModal product={optionsProduct} pin={pin} onClose={() => setOptionsProduct(null)} />
+      )}
+      {detailsProduct && (
+        <ProductDetailsModal product={detailsProduct} pin={pin} onClose={() => setDetailsProduct(null)} onSaved={loadAll} />
       )}
     </div>
   );
@@ -441,6 +453,123 @@ function QrModal({ table, onClose }) {
         <div className="text-xs text-stone-400 font-mono mb-4 break-all max-w-[220px]">{url}</div>
         <div className="text-xs text-stone-400 mb-4">Da stampare e plastificare, poi fissare alla postazione.</div>
         <a href={dataUrl} download={`qr-${table.label}.png`} className="text-sm font-semibold bg-stone-900 text-white px-4 py-2 rounded-lg inline-block">Scarica PNG</a>
+      </div>
+    </div>
+  );
+}
+
+const TAG_OPTIONS = [
+  { key: "tag_vegetarian", label: "🌱 Vegetariano" },
+  { key: "tag_vegan", label: "🌿 Vegano" },
+  { key: "tag_gluten_free", label: "🌾 Senza glutine" },
+  { key: "tag_spicy", label: "🌶️ Piccante" },
+  { key: "tag_recommended", label: "⭐ Consigliato" },
+  { key: "tag_new", label: "🆕 Novità" },
+  { key: "tag_bestseller", label: "🔥 Bestseller" },
+];
+
+function ProductDetailsModal({ product, pin, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    description: product.description || "",
+    image_url: product.image_url || "",
+    visible_from: product.visible_from ? product.visible_from.slice(0, 5) : "",
+    visible_until: product.visible_until ? product.visible_until.slice(0, 5) : "",
+    track_stock: product.track_stock || false,
+    stock_qty: product.stock_qty ?? "",
+    low_stock_threshold: product.low_stock_threshold ?? 5,
+    unavailable_note: product.unavailable_note || "",
+    ...Object.fromEntries(TAG_OPTIONS.map((t) => [t.key, !!product[t.key]])),
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    await fetch(`/api/products/${product.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, ...form }),
+    });
+    setSaving(false);
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-30 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold">Dettagli prodotto</h2>
+          <button onClick={onClose}><X className="h-4 w-4 text-stone-400" /></button>
+        </div>
+        <p className="text-xs text-stone-400 mb-4">{product.name}</p>
+
+        <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">Descrizione</label>
+        <textarea
+          value={form.description}
+          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+          placeholder="Es. Piadina con prosciutto crudo, stracchino e rucola"
+          rows={2}
+          className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2 mb-3"
+        />
+
+        <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">URL immagine</label>
+        <input
+          value={form.image_url}
+          onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
+          placeholder="https://…"
+          className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2 mb-3"
+        />
+
+        <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2 block">Tag</label>
+        <div className="grid grid-cols-2 gap-1.5 mb-4">
+          {TAG_OPTIONS.map((t) => (
+            <label key={t.key} className="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" checked={form[t.key]} onChange={(e) => setForm((f) => ({ ...f, [t.key]: e.target.checked }))} />
+              {t.label}
+            </label>
+          ))}
+        </div>
+
+        <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">Visibile solo in fascia oraria (facoltativo)</label>
+        <div className="flex items-center gap-2 mb-4">
+          <input type="time" value={form.visible_from} onChange={(e) => setForm((f) => ({ ...f, visible_from: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+          <span className="text-stone-300 text-xs">–</span>
+          <input type="time" value={form.visible_until} onChange={(e) => setForm((f) => ({ ...f, visible_until: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+          {(form.visible_from || form.visible_until) && (
+            <button onClick={() => setForm((f) => ({ ...f, visible_from: "", visible_until: "" }))} className="text-xs text-stone-400">Rimuovi</button>
+          )}
+        </div>
+
+        <label className="flex items-center gap-2 text-sm mb-2">
+          <input type="checkbox" checked={form.track_stock} onChange={(e) => setForm((f) => ({ ...f, track_stock: e.target.checked }))} />
+          Gestisci magazzino per questo prodotto
+        </label>
+        {form.track_stock && (
+          <div className="flex items-center gap-3 mb-4 pl-6">
+            <div>
+              <label className="text-[11px] text-stone-400 block">Quantità disponibile</label>
+              <input type="number" value={form.stock_qty} onChange={(e) => setForm((f) => ({ ...f, stock_qty: e.target.value }))} className="w-20 text-sm border border-stone-300 rounded-md px-2 py-1" />
+            </div>
+            <div>
+              <label className="text-[11px] text-stone-400 block">Avviso sotto</label>
+              <input type="number" value={form.low_stock_threshold} onChange={(e) => setForm((f) => ({ ...f, low_stock_threshold: e.target.value }))} className="w-20 text-sm border border-stone-300 rounded-md px-2 py-1" />
+            </div>
+          </div>
+        )}
+
+        <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">
+          Messaggio quando non disponibile (facoltativo)
+        </label>
+        <input
+          value={form.unavailable_note}
+          onChange={(e) => setForm((f) => ({ ...f, unavailable_note: e.target.value }))}
+          placeholder="Es. Di nuovo disponibile dalle 16:00"
+          className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2 mb-4"
+        />
+
+        <button onClick={save} disabled={saving} className="w-full bg-stone-900 text-white text-sm font-semibold py-2.5 rounded-lg disabled:opacity-50">
+          {saving ? "Salvo…" : "Salva dettagli"}
+        </button>
       </div>
     </div>
   );

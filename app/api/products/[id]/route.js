@@ -10,9 +10,20 @@ export async function PATCH(req, { params }) {
     return NextResponse.json({ error: "PIN non valido" }, { status: 401 });
   }
 
-  const allowedFields = ["available", "price", "name", "prep_min", "category_id", "station"];
+  const allowedFields = [
+    "available", "price", "name", "prep_min", "category_id", "station",
+    "description", "image_url",
+    "tag_vegetarian", "tag_vegan", "tag_gluten_free", "tag_spicy",
+    "tag_recommended", "tag_new", "tag_bestseller",
+    "visible_from", "visible_until",
+    "track_stock", "stock_qty", "low_stock_threshold", "unavailable_note",
+  ];
   const patch = {};
   for (const k of allowedFields) if (k in fields) patch[k] = fields[k];
+  // stringhe vuote per orari/stock devono diventare null, non stringa vuota
+  if (patch.visible_from === "") patch.visible_from = null;
+  if (patch.visible_until === "") patch.visible_until = null;
+  if (patch.stock_qty === "") patch.stock_qty = null;
 
   const { data, error } = await supabaseAdmin
     .from("products")

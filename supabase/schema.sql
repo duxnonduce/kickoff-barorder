@@ -36,10 +36,24 @@ create table if not exists products (
   category_id uuid references categories(id),
   name text not null,
   description text,
+  image_url text,
   price numeric(10,2) not null,
   available boolean not null default true,
   prep_min int default 5,
   station text not null default 'bar' check (station in ('bar', 'cucina')),
+  tag_vegetarian boolean not null default false,
+  tag_vegan boolean not null default false,
+  tag_gluten_free boolean not null default false,
+  tag_spicy boolean not null default false,
+  tag_recommended boolean not null default false,
+  tag_new boolean not null default false,
+  tag_bestseller boolean not null default false,
+  visible_from time,
+  visible_until time,
+  track_stock boolean not null default false,
+  stock_qty int,
+  low_stock_threshold int not null default 5,
+  unavailable_note text,
   archived_at timestamptz,
   created_at timestamptz default now()
 );
@@ -208,3 +222,25 @@ on conflict (day_of_week) do nothing;
 -- Idempotenza: evita ordini duplicati da doppio invio
 create unique index if not exists orders_client_request_id_key
   on orders (client_request_id) where client_request_id is not null;
+
+-- Scala automaticamente lo stock (per i prodotti con track_stock attivo)
+-- e disattiva il prodotto quando arriva a zero. Fatto con un trigger per
+-- essere atomico anche con più ordini contemporanei.
+create or replace function kickoff_decrement_stock() returns trigger as $$
+begin
+  update products
+  set
+    stock_qty = greatest(coalesce(stock_qty, 0) - new.qty, 0),
+    available = case
+      when track_stock and greatest(coalesce(stock_qty, 0) - new.qty, 0) <= 0 then false
+      else available
+    end
+  where id = new.product_id and track_stock = true;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists trg_kickoff_decrement_stock on order_items;
+create trigger trg_kickoff_decrement_stock
+  after insert on order_items
+  for each row execute function kickoff_decrement_stock();

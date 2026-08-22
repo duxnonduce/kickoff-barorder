@@ -94,7 +94,7 @@ esattamente allo standard di PointLab:
   ma non riceve una notifica push se chiude la scheda. Si può aggiungere
   un numero di telefono + SMS quando l'ordine è pronto.
 - **Offerte**: sconti percentuali/happy hour automatiche non ancora
-  implementate (le varianti/aggiunte per prodotto invece sì, vedi sopra).
+  implementate (varianti/aggiunte e menu intelligente sì, vedi sopra).
 
 ## Struttura del progetto
 
