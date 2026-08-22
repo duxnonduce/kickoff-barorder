@@ -181,6 +181,23 @@ create table if not exists assistance_requests (
   resolved_at timestamptz
 );
 
+-- ---------- STAFF & REGISTRO ATTIVITÀ ----------
+create table if not exists staff (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  role text not null default 'entrambi' check (role in ('bar', 'admin', 'entrambi')),
+  active boolean not null default true,
+  created_at timestamptz default now()
+);
+
+create table if not exists activity_log (
+  id uuid primary key default gen_random_uuid(),
+  staff_name text,
+  action text not null,
+  details text,
+  created_at timestamptz default now()
+);
+
 -- ---------- ORARI DI APERTURA ----------
 -- day_of_week: 0 = domenica, 1 = lunedì, ... 6 = sabato (come JS Date.getDay())
 create table if not exists opening_hours (
@@ -222,6 +239,11 @@ alter table coupons enable row level security;
 alter table assistance_requests enable row level security;
 create policy "lettura pubblica richieste assistenza" on assistance_requests for select using (true);
 create policy "creazione pubblica richieste assistenza" on assistance_requests for insert with check (true);
+alter table staff enable row level security;
+create policy "lettura pubblica staff" on staff for select using (true);
+-- scrittura staff: solo via Service Role
+alter table activity_log enable row level security;
+-- nessuna policy pubblica: solo via Service Role
 
 create policy "lettura pubblica zone" on zones for select using (true);
 create policy "lettura pubblica postazioni" on tables for select using (true);

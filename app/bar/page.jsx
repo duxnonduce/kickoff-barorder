@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import PinGate from "@/components/PinGate";
+import StaffGate from "@/components/StaffGate";
 import HoursAndAnnouncements from "@/components/HoursAndAnnouncements";
 import { Clock, UtensilsCrossed, Receipt, CheckCircle2, XCircle, Printer, CalendarClock, Waves, Sun, X } from "lucide-react";
 
@@ -16,12 +17,14 @@ const STATUS_LABEL = {
 
 export default function BarPage() {
   const [pin, setPin] = useState(null);
+  const [staffName, setStaffName] = useState(null);
 
   if (!pin) return <PinGate label="Dashboard Bar" role="bar" onUnlock={setPin} />;
-  return <BarDashboard pin={pin} />;
+  if (!staffName) return <StaffGate role="bar" onSelect={setStaffName} />;
+  return <BarDashboard pin={pin} staffName={staffName} />;
 }
 
-function BarDashboard({ pin }) {
+function BarDashboard({ pin, staffName }) {
   const [orders, setOrders] = useState([]);
   const [tables, setTables] = useState([]);
   const [zones, setZones] = useState([]);
@@ -86,6 +89,14 @@ function BarDashboard({ pin }) {
     loadAll();
   }
 
+  function logActivity(action, details) {
+    fetch("/api/activity-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, staff_name: staffName, action, details }),
+    }).catch(() => {});
+  }
+
   async function setStatus(order, status, reject_reason) {
     const res = await fetch(`/api/orders/${order.id}`, {
       method: "PATCH",
@@ -93,6 +104,10 @@ function BarDashboard({ pin }) {
       body: JSON.stringify({ status, pin, reject_reason }),
     });
     if (res.ok && status === "accettato") setReceiptOrder(order);
+    if (res.ok) {
+      const labels = { accettato: "Ordine accettato", rifiutato: "Ordine rifiutato", pronto: "Ordine segnato pronto", completato: "Ordine completato" };
+      logActivity(labels[status] || `Ordine → ${status}`, `${order.code}${reject_reason ? ` — ${reject_reason}` : ""}`);
+    }
     loadAll();
   }
 
@@ -102,6 +117,7 @@ function BarDashboard({ pin }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ available: !p.available, pin }),
     });
+    logActivity(!p.available ? "Prodotto riattivato" : "Prodotto disattivato", p.name);
     loadAll();
   }
 
@@ -125,6 +141,9 @@ function BarDashboard({ pin }) {
             <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-600" : "bg-rose-600 animate-pulse"}`} />
             {connected ? "Sistema online" : "Connessione persa"}
           </span>
+          {staffName && staffName !== "Staff" && (
+            <span className="text-xs text-stone-400">Ciao, {staffName}</span>
+          )}
         </div>
         <div className="flex gap-1 bg-stone-100 p-1 rounded-lg text-sm">
           {["coda", "mappa", "prodotti", "orari"].map((t) => (

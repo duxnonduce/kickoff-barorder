@@ -4,18 +4,21 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { supabase } from "@/lib/supabaseClient";
 import PinGate from "@/components/PinGate";
+import StaffGate from "@/components/StaffGate";
 import HoursAndAnnouncements from "@/components/HoursAndAnnouncements";
-import { Plus, Trash2, Tag, Settings2, Sliders, X, Info, TrendingUp, Download, Ticket } from "lucide-react";
+import { Plus, Trash2, Tag, Settings2, Sliders, X, Info, TrendingUp, Download, Ticket, Users, ScrollText } from "lucide-react";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kickoff-ordina.vercel.app";
 
 export default function AdminPage() {
   const [pin, setPin] = useState(null);
+  const [staffName, setStaffName] = useState(null);
   if (!pin) return <PinGate label="Pannello Admin" role="admin" onUnlock={setPin} />;
-  return <AdminDashboard pin={pin} />;
+  if (!staffName) return <StaffGate role="admin" onSelect={setStaffName} />;
+  return <AdminDashboard pin={pin} staffName={staffName} />;
 }
 
-function AdminDashboard({ pin }) {
+function AdminDashboard({ pin, staffName }) {
   const [tab, setTab] = useState("postazioni");
   const [zones, setZones] = useState([]);
   const [tables, setTables] = useState([]);
@@ -65,12 +68,21 @@ function AdminDashboard({ pin }) {
     loadAll();
   }
 
-  async function removeTable(id) {
+  function logActivity(action, details) {
+    fetch("/api/activity-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, staff_name: staffName, action, details }),
+    }).catch(() => {});
+  }
+
+  async function removeTable(id, label) {
     await fetch("/api/tables", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pin, id }),
     });
+    logActivity("Postazione eliminata", label);
     loadAll();
   }
 
@@ -81,6 +93,7 @@ function AdminDashboard({ pin }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pin, name: newProduct.name.trim(), price: parseFloat(newProduct.price), category_id: newProduct.category_id, station: newProduct.station }),
     });
+    logActivity("Prodotto creato", newProduct.name.trim());
     setNewProduct((p) => ({ ...p, name: "", price: "" }));
     loadAll();
   }
@@ -91,6 +104,8 @@ function AdminDashboard({ pin }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...patch, pin }),
     });
+    if ("price" in patch) logActivity("Prezzo modificato", `${p.name}: €${p.price} → €${patch.price}`);
+    if ("available" in patch) logActivity(patch.available ? "Prodotto riattivato" : "Prodotto disattivato", p.name);
     loadAll();
   }
 
@@ -111,6 +126,8 @@ function AdminDashboard({ pin }) {
     { id: "orari", label: "Orari & Avvisi" },
     { id: "analytics", label: "Analytics" },
     { id: "coupon", label: "Coupon" },
+    { id: "staff", label: "Staff" },
+    { id: "registro", label: "Registro attività" },
   ];
 
   return (
@@ -148,7 +165,7 @@ function AdminDashboard({ pin }) {
                 </div>
                 <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {zTables.map((t) => (
-                    <TableCard key={t.id} table={t} onPreview={() => setQrPreview(t)} onRemove={() => removeTable(t.id)} />
+                    <TableCard key={t.id} table={t} onPreview={() => setQrPreview(t)} onRemove={() => removeTable(t.id, t.label)} />
                   ))}
                 </div>
               </div>
@@ -262,6 +279,8 @@ function AdminDashboard({ pin }) {
       {tab === "orari" && <HoursAndAnnouncements pin={pin} />}
       {tab === "analytics" && <AnalyticsPanel pin={pin} />}
       {tab === "coupon" && <CouponsPanel pin={pin} />}
+      {tab === "staff" && <StaffPanel pin={pin} />}
+      {tab === "registro" && <ActivityLogPanel pin={pin} />}
 
       {optionsProduct && (
         <ProductOptionsModal product={optionsProduct} pin={pin} onClose={() => setOptionsProduct(null)} />
@@ -878,6 +897,108 @@ function CouponsPanel({ pin }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function StaffPanel({ pin }) {
+  const [staff, setStaff] = useState([]);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("entrambi");
+
+  async function load() {
+    const res = await fetch("/api/staff");
+    if (res.ok) { const { staff } = await res.json(); setStaff(staff || []); }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function addStaff() {
+    if (!name.trim()) return;
+    await fetch("/api/staff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, name, role }),
+    });
+    setName("");
+    load();
+  }
+
+  async function removeStaff(id) {
+    await fetch(`/api/staff/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    load();
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">
+        <Users className="h-3.5 w-3.5" /> Nuovo membro dello staff
+      </div>
+      <div className="flex flex-wrap gap-2 mb-6 bg-white border border-stone-200 rounded-xl p-3">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome" className="flex-1 min-w-[140px] text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+        <select value={role} onChange={(e) => setRole(e.target.value)} className="text-sm border border-stone-300 rounded-md px-2 py-1.5">
+          <option value="entrambi">Bar + Admin</option>
+          <option value="bar">Solo bar</option>
+          <option value="admin">Solo admin</option>
+        </select>
+        <button onClick={addStaff} className="flex items-center gap-1 text-sm font-semibold bg-stone-900 text-white px-3 py-1.5 rounded-md">
+          <Plus className="h-3.5 w-3.5" /> Aggiungi
+        </button>
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+        {staff.length === 0 && <div className="text-sm text-stone-400 italic px-4 py-6 text-center">Nessun membro aggiunto ancora — lo staff può comunque scrivere il proprio nome al volo.</div>}
+        {staff.map((s) => (
+          <div key={s.id} className="flex items-center gap-3 px-4 py-3">
+            <div className="flex-1">
+              <div className="text-sm font-medium">{s.name}</div>
+              <div className="text-xs text-stone-400 capitalize">{s.role === "entrambi" ? "Bar + Admin" : s.role}</div>
+            </div>
+            <button onClick={() => removeStaff(s.id)} className="text-stone-300 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ActivityLogPanel({ pin }) {
+  const [log, setLog] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/activity-log?pin=${encodeURIComponent(pin)}`)
+      .then((r) => r.json())
+      .then((d) => setLog(d.log || []))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">
+        <ScrollText className="h-3.5 w-3.5" /> Ultime 100 azioni
+      </div>
+      {loading && <div className="text-sm text-stone-400 py-6 text-center">Carico…</div>}
+      {!loading && (
+        <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+          {log.length === 0 && <div className="text-sm text-stone-400 italic px-4 py-6 text-center">Nessuna attività registrata ancora.</div>}
+          {log.map((entry) => (
+            <div key={entry.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+              <div>
+                <span className="font-medium">{entry.action}</span>
+                {entry.details && <span className="text-stone-400"> — {entry.details}</span>}
+              </div>
+              <div className="text-xs text-stone-400 text-right shrink-0 ml-3">
+                {entry.staff_name && <div className="font-medium text-stone-600">{entry.staff_name}</div>}
+                <div>{new Date(entry.created_at).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

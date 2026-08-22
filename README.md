@@ -93,8 +93,11 @@ Questa è una prima versione pensata per partire in fretta, non ancora
 esattamente allo standard di PointLab:
 
 - **Autenticazione**: `/bar` e `/admin` usano due PIN condivisi (uno per
-  ruolo), non individuali. Come per PointLab, si può evolvere verso PIN
-  per singolo membro dello staff con ruoli (Super Operatore, ecc.).
+  ruolo) come "porta d'ingresso". Sopra, ora c'è un livello leggero di
+  identificazione staff (nome scelto dopo il PIN) che etichetta le azioni
+  nel registro attività — non è un secondo PIN vero e proprio, quindi
+  resta comunque facile aggirarlo/saltarlo di proposito. Per un controllo
+  più stringente servirebbe un vero sistema di autenticazione per persona.
 - **Anti no-show**: nessun limite ancora su "1 ordine attivo per cliente".
   Da aggiungere se diventa un problema reale.
 - **Notifiche**: il cliente vede lo stato aggiornarsi nella pagina aperta,
