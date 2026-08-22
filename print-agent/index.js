@@ -59,6 +59,9 @@ async function printTicket({ printer, title, order, table, items, showPrices }) 
     } else {
       printer.println(`${it.qty}x ${it.name}`);
     }
+    if (it.order_item_options?.length > 0) {
+      printer.println(`  ${it.order_item_options.map((o) => o.option_name).join(", ")}`);
+    }
     if (it.note) printer.println(`  -> ${it.note}`);
   }
   if (showPrices) {
@@ -83,7 +86,7 @@ async function printTicket({ printer, title, order, table, items, showPrices }) 
 async function printOrder(order) {
   const { data: items } = await supabase
     .from("order_items")
-    .select("*")
+    .select("*, order_item_options(*)")
     .eq("order_id", order.id);
 
   const { data: table } = await supabase

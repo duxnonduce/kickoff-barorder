@@ -33,7 +33,7 @@ function BarDashboard({ pin }) {
 
   async function loadAll() {
     const [{ data: o }, { data: t }, { data: z }, { data: p }] = await Promise.all([
-      supabase.from("orders").select("*, order_items(*)").order("created_at", { ascending: false }).limit(60),
+      supabase.from("orders").select("*, order_items(*, order_item_options(*))").order("created_at", { ascending: false }).limit(60),
       supabase.from("tables").select("*"),
       supabase.from("zones").select("*"),
       supabase.from("products").select("*").order("name"),
@@ -241,8 +241,11 @@ function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted }) 
                       <div className="text-xs text-stone-600 space-y-0.5">
                         {stationItems.map((it) => (
                           <div key={it.id}>
-                            {it.qty}× {it.name}
-                            {it.note && <span className="text-stone-400 italic"> — {it.note}</span>}
+                            <div>{it.qty}× {it.name}</div>
+                            {it.order_item_options?.length > 0 && (
+                              <div className="text-stone-400 pl-2.5">{it.order_item_options.map((o) => o.option_name).join(", ")}</div>
+                            )}
+                            {it.note && <div className="text-stone-400 italic pl-2.5">— {it.note}</div>}
                           </div>
                         ))}
                       </div>
@@ -328,6 +331,9 @@ function Ticket({ title, order, table, items, showTotal, className = "" }) {
             <span>{it.qty}× {it.name}</span>
             {showTotal && <span>€{(Number(it.price) * it.qty).toFixed(2)}</span>}
           </div>
+          {it.order_item_options?.length > 0 && (
+            <div className="text-stone-500 pl-2">{it.order_item_options.map((o) => o.option_name).join(", ")}</div>
+          )}
           {it.note && <div className="text-stone-500 pl-2">↳ {it.note}</div>}
         </div>
       ))}

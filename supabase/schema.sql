@@ -101,6 +101,32 @@ create table if not exists order_items (
   prep_min int not null default 5
 );
 
+-- ---------- VARIANTI E AGGIUNTE ----------
+create table if not exists product_option_groups (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid references products(id) on delete cascade,
+  name text not null,
+  selection_type text not null default 'single' check (selection_type in ('single', 'multiple')),
+  required boolean not null default false,
+  sort_order int not null default 0
+);
+
+create table if not exists product_options (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid references product_option_groups(id) on delete cascade,
+  name text not null,
+  price_delta numeric(10,2) not null default 0,
+  sort_order int not null default 0
+);
+
+create table if not exists order_item_options (
+  id uuid primary key default gen_random_uuid(),
+  order_item_id uuid references order_items(id) on delete cascade,
+  group_name text not null,
+  option_name text not null,
+  price_delta numeric(10,2) not null default 0
+);
+
 -- ---------- ORARI DI APERTURA ----------
 -- day_of_week: 0 = domenica, 1 = lunedì, ... 6 = sabato (come JS Date.getDay())
 create table if not exists opening_hours (
@@ -134,6 +160,9 @@ alter table orders enable row level security;
 alter table order_items enable row level security;
 alter table opening_hours enable row level security;
 alter table announcements enable row level security;
+alter table product_option_groups enable row level security;
+alter table product_options enable row level security;
+alter table order_item_options enable row level security;
 
 create policy "lettura pubblica zone" on zones for select using (true);
 create policy "lettura pubblica postazioni" on tables for select using (true);
@@ -141,6 +170,8 @@ create policy "lettura pubblica categorie" on categories for select using (true)
 create policy "lettura pubblica prodotti" on products for select using (true);
 create policy "lettura pubblica orari" on opening_hours for select using (true);
 create policy "lettura pubblica avvisi" on announcements for select using (true);
+create policy "lettura pubblica gruppi opzioni" on product_option_groups for select using (true);
+create policy "lettura pubblica opzioni" on product_options for select using (true);
 
 create policy "creazione ordini pubblica" on orders for insert with check (true);
 create policy "lettura ordini pubblica" on orders for select using (true);
@@ -148,6 +179,9 @@ create policy "lettura ordini pubblica" on orders for select using (true);
 
 create policy "creazione righe ordine pubblica" on order_items for insert with check (true);
 create policy "lettura righe ordine pubblica" on order_items for select using (true);
+
+create policy "creazione opzioni scelte pubblica" on order_item_options for insert with check (true);
+create policy "lettura opzioni scelte pubblica" on order_item_options for select using (true);
 
 -- ============================================================
 -- REALTIME: abilita la pubblicazione per la dashboard del bar

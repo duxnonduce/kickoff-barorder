@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { supabase } from "@/lib/supabaseClient";
 import PinGate from "@/components/PinGate";
 import HoursAndAnnouncements from "@/components/HoursAndAnnouncements";
-import { Plus, Trash2, Tag, Settings2 } from "lucide-react";
+import { Plus, Trash2, Tag, Settings2, Sliders, X } from "lucide-react";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kickoff-ordina.vercel.app";
 
@@ -26,6 +26,7 @@ function AdminDashboard({ pin }) {
   const [newTableLabel, setNewTableLabel] = useState("");
   const [newProduct, setNewProduct] = useState({ name: "", price: "", category_id: "", station: "bar" });
   const [qrPreview, setQrPreview] = useState(null);
+  const [optionsProduct, setOptionsProduct] = useState(null); // prodotto per cui gestisco varianti/aggiunte
 
   async function loadAll() {
     const [{ data: z }, { data: t }, { data: c }, { data: p }] = await Promise.all([
@@ -195,6 +196,9 @@ function AdminDashboard({ pin }) {
                 <button onClick={() => updateProductField(p, { available: !p.available })} className={`text-xs font-semibold px-3 py-1.5 rounded-full ${p.available ? "bg-emerald-100 text-emerald-800" : "bg-stone-200 text-stone-500"}`}>
                   {p.available ? "Attivo" : "Disattivato"}
                 </button>
+                <button onClick={() => setOptionsProduct(p)} className="text-xs font-semibold px-3 py-1.5 rounded-full border border-stone-300 text-stone-600 flex items-center gap-1 shrink-0">
+                  <Sliders className="h-3 w-3" /> Varianti
+                </button>
               </div>
             ))}
           </div>
@@ -245,6 +249,150 @@ function AdminDashboard({ pin }) {
         </div>
       )}
       {tab === "orari" && <HoursAndAnnouncements pin={pin} />}
+
+      {optionsProduct && (
+        <ProductOptionsModal product={optionsProduct} pin={pin} onClose={() => setOptionsProduct(null)} />
+      )}
+    </div>
+  );
+}
+
+function ProductOptionsModal({ product, pin, onClose }) {
+  const [groups, setGroups] = useState([]);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupType, setNewGroupType] = useState("single");
+  const [newGroupRequired, setNewGroupRequired] = useState(false);
+  const [newOptionDraft, setNewOptionDraft] = useState({}); // { groupId: { name, price_delta } }
+
+  async function loadGroups() {
+    const { data: g } = await supabase
+      .from("product_option_groups")
+      .select("*, product_options(*)")
+      .eq("product_id", product.id)
+      .order("sort_order");
+    setGroups((g || []).map((grp) => ({ ...grp, product_options: (grp.product_options || []).sort((a, b) => a.sort_order - b.sort_order) })));
+  }
+
+  useEffect(() => { loadGroups(); }, [product.id]);
+
+  async function addGroup() {
+    if (!newGroupName.trim()) return;
+    await fetch("/api/product-options/groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, product_id: product.id, name: newGroupName.trim(), selection_type: newGroupType, required: newGroupRequired }),
+    });
+    setNewGroupName("");
+    setNewGroupRequired(false);
+    loadGroups();
+  }
+
+  async function removeGroup(id) {
+    await fetch(`/api/product-options/groups/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    loadGroups();
+  }
+
+  async function addOption(groupId) {
+    const draft = newOptionDraft[groupId];
+    if (!draft?.name?.trim()) return;
+    await fetch("/api/product-options/options", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, group_id: groupId, name: draft.name.trim(), price_delta: draft.price_delta || 0 }),
+    });
+    setNewOptionDraft((prev) => ({ ...prev, [groupId]: { name: "", price_delta: "" } }));
+    loadGroups();
+  }
+
+  async function removeOption(id) {
+    await fetch(`/api/product-options/options/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    loadGroups();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-30 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold">Varianti e aggiunte</h2>
+          <button onClick={onClose}><X className="h-4 w-4 text-stone-400" /></button>
+        </div>
+        <p className="text-xs text-stone-400 mb-4">{product.name}</p>
+
+        {groups.map((g) => (
+          <div key={g.id} className="border border-stone-200 rounded-xl p-3 mb-3">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <div className="text-sm font-semibold">{g.name}</div>
+                <div className="text-[11px] text-stone-400">
+                  {g.selection_type === "single" ? "Scelta singola" : "Scelta multipla"} · {g.required ? "obbligatorio" : "facoltativo"}
+                </div>
+              </div>
+              <button onClick={() => removeGroup(g.id)} className="text-stone-300 hover:text-rose-600">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1 mb-2">
+              {g.product_options.map((o) => (
+                <div key={o.id} className="flex items-center justify-between text-sm bg-stone-50 rounded-lg px-2.5 py-1.5">
+                  <span>{o.name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-stone-500 tabular-nums">{o.price_delta > 0 ? `+€${Number(o.price_delta).toFixed(2)}` : "incluso"}</span>
+                    <button onClick={() => removeOption(o.id)} className="text-stone-300 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                </div>
+              ))}
+              {g.product_options.length === 0 && <div className="text-xs text-stone-300 italic px-1">Nessuna opzione ancora</div>}
+            </div>
+
+            <div className="flex gap-1.5">
+              <input
+                value={newOptionDraft[g.id]?.name || ""}
+                onChange={(e) => setNewOptionDraft((prev) => ({ ...prev, [g.id]: { ...prev[g.id], name: e.target.value } }))}
+                placeholder="Nome opzione"
+                className="flex-1 text-xs border border-stone-300 rounded-md px-2 py-1.5"
+              />
+              <input
+                value={newOptionDraft[g.id]?.price_delta || ""}
+                onChange={(e) => setNewOptionDraft((prev) => ({ ...prev, [g.id]: { ...prev[g.id], price_delta: e.target.value } }))}
+                placeholder="+€"
+                type="number" step="0.10"
+                className="w-16 text-xs border border-stone-300 rounded-md px-2 py-1.5"
+              />
+              <button onClick={() => addOption(g.id)} className="text-xs font-semibold bg-stone-900 text-white px-2.5 rounded-md">+</button>
+            </div>
+          </div>
+        ))}
+
+        <div className="border border-dashed border-stone-300 rounded-xl p-3">
+          <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Nuovo gruppo</div>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            <input
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              placeholder='Es. "Tipo" o "Aggiunte"'
+              className="flex-1 min-w-[140px] text-sm border border-stone-300 rounded-md px-2 py-1.5"
+            />
+            <select value={newGroupType} onChange={(e) => setNewGroupType(e.target.value)} className="text-sm border border-stone-300 rounded-md px-2 py-1.5">
+              <option value="single">Scelta singola</option>
+              <option value="multiple">Scelta multipla</option>
+            </select>
+          </div>
+          <label className="flex items-center gap-1.5 text-xs text-stone-600 mb-2">
+            <input type="checkbox" checked={newGroupRequired} onChange={(e) => setNewGroupRequired(e.target.checked)} />
+            Obbligatorio (il cliente deve scegliere per poter ordinare)
+          </label>
+          <button onClick={addGroup} className="w-full text-sm font-semibold bg-stone-900 text-white py-2 rounded-lg">Aggiungi gruppo</button>
+        </div>
+      </div>
     </div>
   );
 }

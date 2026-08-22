@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone, Heart, RotateCcw, StickyNote } from "lucide-react";
+import { Plus, Minus, ShoppingBag, Bike, Ban, ArrowLeft, CheckCircle2, Clock, Megaphone, Heart, RotateCcw, StickyNote, X, Trash2 } from "lucide-react";
 
 const ZONE_STYLE = {
   piscina: { text: "text-teal-800", soft: "bg-teal-50", border: "border-teal-200" },
@@ -13,6 +13,10 @@ const ZONE_STYLE = {
 
 const CUSTOMER_STORAGE_KEY = "kickoff_customer";
 
+function newId() {
+  return (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+}
+
 function generateTimeSlots(todayHours) {
   if (!todayHours || todayHours.closed) return [];
   const now = new Date();
@@ -20,9 +24,9 @@ function generateTimeSlots(todayHours) {
   const [ch, cm] = todayHours.close_time.slice(0, 5).split(":").map(Number);
   const openAt = new Date(now); openAt.setHours(oh, om, 0, 0);
   const closeAt = new Date(now); closeAt.setHours(ch, cm, 0, 0);
-  const cutoffAt = new Date(closeAt.getTime() - 15 * 60000); // ultimo orario prenotabile
+  const cutoffAt = new Date(closeAt.getTime() - 15 * 60000);
 
-  const earliestPossible = new Date(now.getTime() + 20 * 60000); // non prima di +20 min da adesso
+  const earliestPossible = new Date(now.getTime() + 20 * 60000);
   let next = new Date(Math.max(earliestPossible.getTime(), openAt.getTime()));
   next.setMinutes(Math.ceil(next.getMinutes() / 15) * 15, 0, 0);
 
@@ -34,13 +38,19 @@ function generateTimeSlots(todayHours) {
   return slots;
 }
 
+function lineUnitPrice(line, product) {
+  const optTotal = (line.options || []).reduce((s, o) => s + Number(o.price_delta || 0), 0);
+  return Number(product?.price || 0) + optTotal;
+}
+
 export default function OrderPage() {
   const { tableId } = useParams();
   const [table, setTable] = useState(null);
   const [zone, setZone] = useState(null);
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
-  const [cart, setCart] = useState({});
+  const [optionGroups, setOptionGroups] = useState({}); // { productId: [group, ...] }
+  const [cartLines, setCartLines] = useState([]); // [{ id, productId, qty, options:[{id,name,price_delta,group_name}], note }]
   const [mode, setMode] = useState("ritiro");
   const [note, setNote] = useState("");
   const [requestedTime, setRequestedTime] = useState("asap");
@@ -48,19 +58,16 @@ export default function OrderPage() {
   const [placedOrder, setPlacedOrder] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-  const [customer, setCustomer] = useState(null); // { name, email, phone }
+  const [customer, setCustomer] = useState(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [todayHours, setTodayHours] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
-  const [clientRequestId, setClientRequestId] = useState(() =>
-    (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
-  );
-  const [customerRecord, setCustomerRecord] = useState(null); // riga completa da DB (id, preferiti...)
-  const [favorites, setFavorites] = useState([]); // array di product_id
-  const [itemNotes, setItemNotes] = useState({}); // { productId: "senza maionese" }
+  const [clientRequestId, setClientRequestId] = useState(() => newId());
+  const [favorites, setFavorites] = useState([]);
   const [openNoteFor, setOpenNoteFor] = useState(null);
   const [lastOrder, setLastOrder] = useState(null);
   const [reorderDismissed, setReorderDismissed] = useState(false);
+  const [customizeProduct, setCustomizeProduct] = useState(null);
 
   const timeSlots = useMemo(() => generateTimeSlots(todayHours), [todayHours]);
 
@@ -80,7 +87,7 @@ export default function OrderPage() {
   }, []);
 
   const orderingStatus = useMemo(() => {
-    if (!todayHours) return { open: true }; // finché non carica, non blocco l'utente
+    if (!todayHours) return { open: true };
     if (todayHours.closed) return { open: false, reason: "closed_today" };
     const now = new Date();
     const [oh, om] = todayHours.open_time.slice(0, 5).split(":").map(Number);
@@ -111,12 +118,11 @@ export default function OrderPage() {
         .eq("phone", customer.phone)
         .maybeSingle();
       if (!cust) return;
-      setCustomerRecord(cust);
       setFavorites(cust.favorite_product_ids || []);
 
       const { data: last } = await supabase
         .from("orders")
-        .select("*, order_items(*)")
+        .select("*, order_items(*, order_item_options(*))")
         .eq("customer_id", cust.id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -129,7 +135,7 @@ export default function OrderPage() {
   async function toggleFavorite(productId) {
     if (!customer?.phone) return;
     const isFav = favorites.includes(productId);
-    setFavorites((prev) => (isFav ? prev.filter((id) => id !== productId) : [...prev, productId])); // ottimistico
+    setFavorites((prev) => (isFav ? prev.filter((id) => id !== productId) : [...prev, productId]));
     try {
       await fetch("/api/customers/favorites", {
         method: "POST",
@@ -137,18 +143,25 @@ export default function OrderPage() {
         body: JSON.stringify({ phone: customer.phone, product_id: productId, action: isFav ? "remove" : "add" }),
       });
     } catch {
-      setFavorites((prev) => (isFav ? [...prev, productId] : prev.filter((id) => id !== productId))); // rollback
+      setFavorites((prev) => (isFav ? [...prev, productId] : prev.filter((id) => id !== productId)));
     }
   }
 
   function reorderLast() {
     if (!lastOrder) return;
-    const nextCart = {};
+    const nextLines = [];
     lastOrder.order_items.forEach((it) => {
-      const stillAvailable = products.find((p) => p.id === it.product_id && p.available);
-      if (stillAvailable) nextCart[it.product_id] = (nextCart[it.product_id] || 0) + it.qty;
+      const product = products.find((p) => p.id === it.product_id && p.available);
+      if (!product) return;
+      nextLines.push({
+        id: newId(),
+        productId: it.product_id,
+        qty: it.qty,
+        options: (it.order_item_options || []).map((o) => ({ id: newId(), name: o.option_name, price_delta: o.price_delta, group_name: o.group_name })),
+        note: it.note || "",
+      });
     });
-    setCart(nextCart);
+    setCartLines(nextLines);
     setReorderDismissed(true);
   }
 
@@ -163,6 +176,18 @@ export default function OrderPage() {
       setCategories(cats || []);
       const { data: prods } = await supabase.from("products").select("*").order("name");
       setProducts(prods || []);
+
+      const { data: groups } = await supabase
+        .from("product_option_groups")
+        .select("*, product_options(*)")
+        .order("sort_order");
+      const grouped = {};
+      (groups || []).forEach((g) => {
+        if (!grouped[g.product_id]) grouped[g.product_id] = [];
+        grouped[g.product_id].push({ ...g, product_options: (g.product_options || []).sort((a, b) => a.sort_order - b.sort_order) });
+      });
+      setOptionGroups(grouped);
+
       setLoading(false);
     }
     load();
@@ -184,9 +209,7 @@ export default function OrderPage() {
       .channel(`order-${placedOrder.id}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `id=eq.${placedOrder.id}` }, (payload) => {
         setPlacedOrder((prev) => {
-          if (prev && prev.status !== "pronto" && payload.new.status === "pronto") {
-            playReadyAlert();
-          }
+          if (prev && prev.status !== "pronto" && payload.new.status === "pronto") playReadyAlert();
           return { ...prev, ...payload.new };
         });
       })
@@ -212,17 +235,62 @@ export default function OrderPage() {
     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([200, 100, 200]);
   }
 
-  const cartItems = useMemo(
-    () => Object.entries(cart).filter(([, q]) => q > 0).map(([pid, q]) => ({ product: products.find((p) => p.id === pid), qty: q })),
-    [cart, products]
-  );
-  const subtotal = cartItems.reduce((s, i) => s + Number(i.product.price) * i.qty, 0);
+  // ---------- Carrello ----------
+
+  function addSimple(product) {
+    setCartLines((prev) => {
+      const idx = prev.findIndex((l) => l.productId === product.id && (l.options || []).length === 0);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
+        return next;
+      }
+      return [...prev, { id: newId(), productId: product.id, qty: 1, options: [], note: "" }];
+    });
+  }
+
+  function decrementSimple(product) {
+    setCartLines((prev) => {
+      const idx = prev.findIndex((l) => l.productId === product.id && (l.options || []).length === 0);
+      if (idx < 0) return prev;
+      const next = [...prev];
+      if (next[idx].qty <= 1) { next.splice(idx, 1); return next; }
+      next[idx] = { ...next[idx], qty: next[idx].qty - 1 };
+      return next;
+    });
+  }
+
+  function addCustomizedLine(product, options, qty, lineNote) {
+    setCartLines((prev) => [...prev, { id: newId(), productId: product.id, qty, options, note: lineNote }]);
+  }
+
+  function updateLineQty(lineId, delta) {
+    setCartLines((prev) => {
+      const next = [];
+      for (const l of prev) {
+        if (l.id !== lineId) { next.push(l); continue; }
+        const q = l.qty + delta;
+        if (q > 0) next.push({ ...l, qty: q });
+      }
+      return next;
+    });
+  }
+
+  function removeLine(lineId) {
+    setCartLines((prev) => prev.filter((l) => l.id !== lineId));
+  }
+
+  function setLineNote(lineId, text) {
+    setCartLines((prev) => prev.map((l) => (l.id === lineId ? { ...l, note: text } : l)));
+  }
+
+  const cartTotalQty = cartLines.reduce((s, l) => s + l.qty, 0);
+  const subtotal = cartLines.reduce((s, l) => {
+    const product = products.find((p) => p.id === l.productId);
+    return s + lineUnitPrice(l, product) * l.qty;
+  }, 0);
   const surcharge = mode === "consegna" ? Number(zone?.surcharge || 0) : 0;
   const total = subtotal + surcharge;
-
-  function addQty(pid, delta) {
-    setCart((prev) => ({ ...prev, [pid]: Math.max(0, (prev[pid] || 0) + delta) }));
-  }
 
   function saveCustomer(info) {
     setCustomer(info);
@@ -233,7 +301,7 @@ export default function OrderPage() {
   }
 
   async function handleSubmit() {
-    if (cartItems.length === 0 || !customer || submitting) return;
+    if (cartLines.length === 0 || !customer || submitting) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setError("Connessione assente. Il tuo ordine non è ancora stato inviato — riprova quando torni online.");
       return;
@@ -280,52 +348,72 @@ export default function OrderPage() {
         .select()
         .single());
 
-      // Se questo client_request_id esiste già (es. doppio tap, risposta persa
-      // per rete lenta), non è un errore: recupero l'ordine già creato invece
-      // di farne uno nuovo o mostrare un errore fuorviante.
       if (orderErr && orderErr.code === "23505") {
         const { data: existing } = await supabase
           .from("orders")
-          .select("*, order_items(*)")
+          .select("*, order_items(*, order_item_options(*))")
           .eq("client_request_id", clientRequestId)
           .single();
         if (existing) {
           setPlacedOrder({ ...existing, items: existing.order_items });
-          setCart({});
-          setNote("");
-          setItemNotes({});
-          setCheckoutOpen(false);
-          setClientRequestId(crypto.randomUUID());
+          resetCartAfterSubmit();
           return;
         }
       }
       if (orderErr) throw orderErr;
 
-      const items = cartItems.map((i) => ({
-        order_id: order.id,
-        product_id: i.product.id,
-        name: i.product.name,
-        price: i.product.price,
-        qty: i.qty,
-        note: itemNotes[i.product.id] || null,
-        station: i.product.station || "bar",
-        prep_min: i.product.prep_min || 5,
-      }));
-      const { error: itemsErr } = await supabase.from("order_items").insert(items);
+      const rows = cartLines.map((l) => {
+        const product = products.find((p) => p.id === l.productId);
+        return {
+          order_id: order.id,
+          product_id: product.id,
+          name: product.name,
+          price: lineUnitPrice(l, product),
+          qty: l.qty,
+          note: l.note || null,
+          station: product.station || "bar",
+          prep_min: product.prep_min || 5,
+        };
+      });
+      const { data: insertedItems, error: itemsErr } = await supabase.from("order_items").insert(rows).select();
       if (itemsErr) throw itemsErr;
 
-      setPlacedOrder({ ...order, items });
-      setCart({});
-      setNote("");
-      setItemNotes({});
-      setCheckoutOpen(false);
-      setClientRequestId(crypto.randomUUID());
+      const optionRows = [];
+      insertedItems.forEach((row, idx) => {
+        const line = cartLines[idx];
+        (line.options || []).forEach((o) => {
+          optionRows.push({
+            order_item_id: row.id,
+            group_name: o.group_name,
+            option_name: o.name,
+            price_delta: o.price_delta,
+          });
+        });
+      });
+      if (optionRows.length > 0) {
+        await supabase.from("order_item_options").insert(optionRows);
+      }
+
+      const itemsWithOptions = insertedItems.map((row, idx) => ({
+        ...row,
+        order_item_options: (cartLines[idx].options || []).map((o) => ({ group_name: o.group_name, option_name: o.name, price_delta: o.price_delta })),
+      }));
+
+      setPlacedOrder({ ...order, items: itemsWithOptions });
+      resetCartAfterSubmit();
     } catch (e) {
       setError("Non sono riuscito a inviare l'ordine. Riprova.");
       console.error(e);
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function resetCartAfterSubmit() {
+    setCartLines([]);
+    setNote("");
+    setCheckoutOpen(false);
+    setClientRequestId(newId());
   }
 
   if (loading) return <div className="min-h-screen grid place-items-center text-stone-400 text-sm">Carico il menu…</div>;
@@ -365,7 +453,7 @@ export default function OrderPage() {
         </div>
       )}
 
-      {lastOrder && !reorderDismissed && orderingStatus.open && cartItems.length === 0 && (
+      {lastOrder && !reorderDismissed && orderingStatus.open && cartLines.length === 0 && (
         <div className="mb-6 flex items-center justify-between gap-3 bg-white border border-stone-200 rounded-xl px-4 py-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <RotateCcw className="h-4 w-4 text-stone-400 shrink-0" />
@@ -393,7 +481,10 @@ export default function OrderPage() {
             </h2>
             <div className="space-y-2">
               {favProducts.map((p) => (
-                <ProductRow key={p.id} p={p} cart={cart} addQty={addQty} customer={customer} isFavorite favorites={favorites} toggleFavorite={toggleFavorite} itemNotes={itemNotes} setItemNotes={setItemNotes} openNoteFor={openNoteFor} setOpenNoteFor={setOpenNoteFor} />
+                <ProductRow key={p.id} p={p} cartLines={cartLines} addSimple={addSimple} decrementSimple={decrementSimple}
+                  optionGroups={optionGroups[p.id]} onCustomize={() => setCustomizeProduct(p)}
+                  customer={customer} favorites={favorites} toggleFavorite={toggleFavorite}
+                  openNoteFor={openNoteFor} setOpenNoteFor={setOpenNoteFor} setLineNote={setLineNote} />
               ))}
             </div>
           </div>
@@ -408,23 +499,35 @@ export default function OrderPage() {
             <h2 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">{cat.name}</h2>
             <div className="space-y-2">
               {items.map((p) => (
-                <ProductRow key={p.id} p={p} cart={cart} addQty={addQty} customer={customer} favorites={favorites} toggleFavorite={toggleFavorite} itemNotes={itemNotes} setItemNotes={setItemNotes} openNoteFor={openNoteFor} setOpenNoteFor={setOpenNoteFor} />
+                <ProductRow key={p.id} p={p} cartLines={cartLines} addSimple={addSimple} decrementSimple={decrementSimple}
+                  optionGroups={optionGroups[p.id]} onCustomize={() => setCustomizeProduct(p)}
+                  customer={customer} favorites={favorites} toggleFavorite={toggleFavorite}
+                  openNoteFor={openNoteFor} setOpenNoteFor={setOpenNoteFor} setLineNote={setLineNote} />
               ))}
             </div>
           </div>
         );
       })}
 
-      {cartItems.length > 0 && orderingStatus.open && (
+      {cartLines.length > 0 && orderingStatus.open && (
         <div className="fixed bottom-4 left-4 right-4 max-w-lg mx-auto bg-stone-900 text-white rounded-2xl p-4 shadow-xl">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-stone-300">{cartItems.length} prodott{cartItems.length === 1 ? "o" : "i"} nel carrello</span>
+            <span className="text-sm text-stone-300">{cartTotalQty} prodott{cartTotalQty === 1 ? "o" : "i"} nel carrello</span>
             <span className="font-bold text-lg tabular-nums">€{total.toFixed(2)}</span>
           </div>
           <button onClick={() => setCheckoutOpen(true)} className="w-full bg-orange-700 hover:bg-orange-600 transition rounded-lg py-3 font-semibold text-sm">
             Continua
           </button>
         </div>
+      )}
+
+      {customizeProduct && (
+        <CustomizeSheet
+          product={customizeProduct}
+          groups={optionGroups[customizeProduct.id] || []}
+          onClose={() => setCustomizeProduct(null)}
+          onAdd={(options, qty, lineNote) => { addCustomizedLine(customizeProduct, options, qty, lineNote); setCustomizeProduct(null); }}
+        />
       )}
 
       {checkoutOpen && (
@@ -434,7 +537,9 @@ export default function OrderPage() {
           note={note} setNote={setNote}
           requestedTime={requestedTime} setRequestedTime={setRequestedTime}
           timeSlots={timeSlots}
-          total={total}
+          total={total} subtotal={subtotal} surcharge={surcharge}
+          cartLines={cartLines} products={products}
+          updateLineQty={updateLineQty} removeLine={removeLine}
           customer={customer} saveCustomer={saveCustomer}
           onClose={() => setCheckoutOpen(false)}
           onSubmit={handleSubmit}
@@ -445,10 +550,14 @@ export default function OrderPage() {
   );
 }
 
-function ProductRow({ p, cart, addQty, customer, favorites, toggleFavorite, itemNotes, setItemNotes, openNoteFor, setOpenNoteFor }) {
+// ---------- Riga prodotto nel menu ----------
+
+function ProductRow({ p, cartLines, addSimple, decrementSimple, optionGroups, onCustomize, customer, favorites, toggleFavorite, openNoteFor, setOpenNoteFor, setLineNote }) {
   const isFav = favorites.includes(p.id);
-  const hasQty = !!cart[p.id];
-  const noteOpen = openNoteFor === p.id;
+  const hasGroups = (optionGroups || []).length > 0;
+  const simpleLine = cartLines.find((l) => l.productId === p.id && (l.options || []).length === 0);
+  const totalQtyInCart = cartLines.filter((l) => l.productId === p.id).reduce((s, l) => s + l.qty, 0);
+  const noteOpen = simpleLine && openNoteFor === simpleLine.id;
 
   return (
     <div className={`border rounded-xl px-4 py-3 ${p.available ? "border-stone-200 bg-white" : "border-stone-100 bg-stone-50 opacity-60"}`}>
@@ -462,41 +571,46 @@ function ProductRow({ p, cart, addQty, customer, favorites, toggleFavorite, item
           <div className="min-w-0">
             <div className="font-medium text-sm truncate">{p.name}</div>
             <div className="text-xs text-stone-500">
-              €{Number(p.price).toFixed(2)}
+              €{Number(p.price).toFixed(2)}{hasGroups && <span className="text-stone-400"> +</span>}
               {!p.available && <span className="ml-2 text-rose-600 font-medium">Non disponibile</span>}
+              {p.available && hasGroups && totalQtyInCart > 0 && <span className="ml-2 text-emerald-700 font-medium">Nel carrello: {totalQtyInCart}</span>}
             </div>
           </div>
         </div>
         {p.available ? (
-          hasQty ? (
+          hasGroups ? (
+            <button onClick={onCustomize} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-stone-900 text-white shrink-0">
+              {totalQtyInCart > 0 ? "Aggiungi altro" : "Personalizza"}
+            </button>
+          ) : simpleLine ? (
             <div className="flex items-center gap-2 shrink-0">
-              <button onClick={() => addQty(p.id, -1)} className="h-7 w-7 grid place-items-center rounded-full border border-stone-300"><Minus className="h-3.5 w-3.5" /></button>
-              <span className="w-5 text-center text-sm font-semibold tabular-nums">{cart[p.id]}</span>
-              <button onClick={() => addQty(p.id, 1)} className="h-7 w-7 grid place-items-center rounded-full bg-stone-900 text-white"><Plus className="h-3.5 w-3.5" /></button>
+              <button onClick={() => decrementSimple(p)} className="h-7 w-7 grid place-items-center rounded-full border border-stone-300"><Minus className="h-3.5 w-3.5" /></button>
+              <span className="w-5 text-center text-sm font-semibold tabular-nums">{simpleLine.qty}</span>
+              <button onClick={() => addSimple(p)} className="h-7 w-7 grid place-items-center rounded-full bg-stone-900 text-white"><Plus className="h-3.5 w-3.5" /></button>
             </div>
           ) : (
-            <button onClick={() => addQty(p.id, 1)} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-stone-900 text-white shrink-0">Aggiungi</button>
+            <button onClick={() => addSimple(p)} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-stone-900 text-white shrink-0">Aggiungi</button>
           )
         ) : (
           <Ban className="h-4 w-4 text-stone-300 shrink-0" />
         )}
       </div>
 
-      {hasQty && (
-        <div className="mt-2 pl-0">
+      {simpleLine && (
+        <div className="mt-2">
           {noteOpen ? (
             <input
               autoFocus
-              value={itemNotes[p.id] || ""}
-              onChange={(e) => setItemNotes((prev) => ({ ...prev, [p.id]: e.target.value }))}
+              value={simpleLine.note}
+              onChange={(e) => setLineNote(simpleLine.id, e.target.value)}
               onBlur={() => setOpenNoteFor(null)}
-              placeholder="Es. senza cipolla, ben cotto…"
+              placeholder="Es. senza ghiaccio…"
               className="w-full text-xs border border-stone-300 rounded-lg px-2.5 py-1.5"
             />
           ) : (
-            <button onClick={() => setOpenNoteFor(p.id)} className="flex items-center gap-1 text-xs text-stone-400">
+            <button onClick={() => setOpenNoteFor(simpleLine.id)} className="flex items-center gap-1 text-xs text-stone-400">
               <StickyNote className="h-3 w-3" />
-              {itemNotes[p.id] ? itemNotes[p.id] : "Aggiungi nota"}
+              {simpleLine.note || "Aggiungi nota"}
             </button>
           )}
         </div>
@@ -505,7 +619,117 @@ function ProductRow({ p, cart, addQty, customer, favorites, toggleFavorite, item
   );
 }
 
-function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTime, setRequestedTime, timeSlots, total, customer, saveCustomer, onClose, onSubmit, submitting, error }) {
+// ---------- Sheet di personalizzazione (varianti/aggiunte) ----------
+
+function CustomizeSheet({ product, groups, onClose, onAdd }) {
+  const [selected, setSelected] = useState(() => {
+    const init = {};
+    groups.forEach((g) => {
+      init[g.id] = g.selection_type === "multiple" ? [] : (g.required && g.product_options[0] ? g.product_options[0].id : null);
+    });
+    return init;
+  });
+  const [qty, setQty] = useState(1);
+  const [lineNote, setLineNote] = useState("");
+
+  function pickSingle(groupId, optionId) {
+    setSelected((prev) => ({ ...prev, [groupId]: optionId }));
+  }
+  function toggleMultiple(groupId, optionId) {
+    setSelected((prev) => {
+      const cur = prev[groupId] || [];
+      const next = cur.includes(optionId) ? cur.filter((id) => id !== optionId) : [...cur, optionId];
+      return { ...prev, [groupId]: next };
+    });
+  }
+
+  const missingRequired = groups.some((g) => g.required && (
+    g.selection_type === "multiple" ? (selected[g.id] || []).length === 0 : !selected[g.id]
+  ));
+
+  const chosenOptions = [];
+  groups.forEach((g) => {
+    const opts = g.product_options || [];
+    if (g.selection_type === "multiple") {
+      (selected[g.id] || []).forEach((optId) => {
+        const o = opts.find((x) => x.id === optId);
+        if (o) chosenOptions.push({ id: o.id, name: o.name, price_delta: Number(o.price_delta), group_name: g.name });
+      });
+    } else if (selected[g.id]) {
+      const o = opts.find((x) => x.id === selected[g.id]);
+      if (o) chosenOptions.push({ id: o.id, name: o.name, price_delta: Number(o.price_delta), group_name: g.name });
+    }
+  });
+
+  const unitPrice = Number(product.price) + chosenOptions.reduce((s, o) => s + o.price_delta, 0);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold">{product.name}</h2>
+          <button onClick={onClose}><X className="h-4 w-4 text-stone-400" /></button>
+        </div>
+        <p className="text-sm text-stone-500 mb-4">€{Number(product.price).toFixed(2)}</p>
+
+        {groups.map((g) => (
+          <div key={g.id} className="mb-4">
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">
+              {g.name} {g.required && <span className="text-rose-500">*</span>}
+            </div>
+            <div className="space-y-1.5">
+              {(g.product_options || []).map((o) => {
+                const checked = g.selection_type === "multiple" ? (selected[g.id] || []).includes(o.id) : selected[g.id] === o.id;
+                return (
+                  <label key={o.id} className={`flex items-center justify-between px-3 py-2 rounded-lg border text-sm cursor-pointer ${checked ? "border-stone-900 bg-stone-50" : "border-stone-200"}`}>
+                    <span className="flex items-center gap-2">
+                      <input
+                        type={g.selection_type === "multiple" ? "checkbox" : "radio"}
+                        name={g.id}
+                        checked={checked}
+                        onChange={() => g.selection_type === "multiple" ? toggleMultiple(g.id, o.id) : pickSingle(g.id, o.id)}
+                      />
+                      {o.name}
+                    </span>
+                    {Number(o.price_delta) > 0 && <span className="text-xs text-stone-500">+€{Number(o.price_delta).toFixed(2)}</span>}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <input
+          value={lineNote}
+          onChange={(e) => setLineNote(e.target.value)}
+          placeholder="Note (es. ben cotto, senza cipolla…)"
+          className="w-full mb-4 text-sm border border-stone-300 rounded-lg px-3 py-2"
+        />
+
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-sm text-stone-500">Quantità</span>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="h-7 w-7 grid place-items-center rounded-full border border-stone-300"><Minus className="h-3.5 w-3.5" /></button>
+            <span className="w-5 text-center text-sm font-semibold tabular-nums">{qty}</span>
+            <button onClick={() => setQty((q) => q + 1)} className="h-7 w-7 grid place-items-center rounded-full bg-stone-900 text-white"><Plus className="h-3.5 w-3.5" /></button>
+          </div>
+        </div>
+
+        <button
+          disabled={missingRequired}
+          onClick={() => onAdd(chosenOptions, qty, lineNote)}
+          className="w-full bg-orange-700 text-white text-sm font-semibold rounded-lg py-3 disabled:opacity-40"
+        >
+          Aggiungi al carrello · €{(unitPrice * qty).toFixed(2)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Checkout ----------
+
+function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTime, setRequestedTime, timeSlots, total, cartLines, products, updateLineQty, removeLine, customer, saveCustomer, onClose, onSubmit, submitting, error }) {
   const [form, setForm] = useState(customer || { name: "", email: "", phone: "" });
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
@@ -525,8 +749,38 @@ function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTim
     <div className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
       <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">Ultimo passo</h2>
+          <h2 className="text-lg font-bold">Il tuo ordine</h2>
           <button onClick={onClose} className="text-stone-400 text-sm">Chiudi</button>
+        </div>
+
+        <div className="mb-5 space-y-2">
+          {cartLines.map((l) => {
+            const product = products.find((p) => p.id === l.productId);
+            if (!product) return null;
+            const unit = lineUnitPrice(l, product);
+            return (
+              <div key={l.id} className="border border-stone-200 rounded-lg px-3 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{product.name}</div>
+                    {l.options?.length > 0 && (
+                      <div className="text-xs text-stone-500">{l.options.map((o) => o.name).join(", ")}</div>
+                    )}
+                    {l.note && <div className="text-xs text-stone-400 italic">{l.note}</div>}
+                  </div>
+                  <button onClick={() => removeLine(l.id)} className="text-stone-300 hover:text-rose-600 shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => updateLineQty(l.id, -1)} className="h-6 w-6 grid place-items-center rounded-full border border-stone-300"><Minus className="h-3 w-3" /></button>
+                    <span className="w-4 text-center text-xs font-semibold tabular-nums">{l.qty}</span>
+                    <button onClick={() => updateLineQty(l.id, 1)} className="h-6 w-6 grid place-items-center rounded-full bg-stone-900 text-white"><Plus className="h-3 w-3" /></button>
+                  </div>
+                  <span className="text-xs font-semibold tabular-nums">€{(unit * l.qty).toFixed(2)}</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {!customer ? (
@@ -589,14 +843,14 @@ function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTim
               </select>
             </div>
 
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note per il bar (es. senza ghiaccio)" className="w-full mb-4 text-sm border border-stone-300 rounded-lg px-3 py-2" />
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note generali per il bar" className="w-full mb-4 text-sm border border-stone-300 rounded-lg px-3 py-2" />
 
             <div className="flex items-center justify-between mb-3 text-sm">
               <span className="text-stone-500">Totale da pagare {mode === "consegna" ? "alla consegna" : "al ritiro"}</span>
               <span className="font-bold text-lg tabular-nums">€{total.toFixed(2)}</span>
             </div>
             {error && <div className="text-rose-600 text-xs mb-2">{error}</div>}
-            <button disabled={submitting} onClick={onSubmit} className="w-full bg-orange-700 hover:bg-orange-600 transition rounded-lg py-3 font-semibold text-sm text-white disabled:opacity-50">
+            <button disabled={submitting || cartLines.length === 0} onClick={onSubmit} className="w-full bg-orange-700 hover:bg-orange-600 transition rounded-lg py-3 font-semibold text-sm text-white disabled:opacity-50">
               {submitting ? "Invio…" : `Invia ordine · ${table.label}`}
             </button>
           </>
@@ -605,6 +859,8 @@ function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTim
     </div>
   );
 }
+
+// ---------- Tracking ordine ----------
 
 function OrderTrackView({ order, table, zone, onBack }) {
   const steps = ["in_attesa", "accettato", "pronto", "completato"];
@@ -659,6 +915,9 @@ function OrderTrackView({ order, table, zone, onBack }) {
               <span>{it.qty}× {it.name}</span>
               <span className="tabular-nums">€{(Number(it.price) * it.qty).toFixed(2)}</span>
             </div>
+            {it.order_item_options?.length > 0 && (
+              <div className="text-xs text-stone-500">{it.order_item_options.map((o) => o.option_name).join(", ")}</div>
+            )}
             {it.note && <div className="text-xs text-stone-400 italic">{it.note}</div>}
           </div>
         ))}
