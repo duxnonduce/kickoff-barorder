@@ -509,6 +509,7 @@ function ProductDetailsModal({ product, pin, products, onClose, onSaved }) {
     happy_from: product.happy_from ? product.happy_from.slice(0, 5) : "",
     happy_until: product.happy_until ? product.happy_until.slice(0, 5) : "",
     suggested_product_id: product.suggested_product_id || "",
+    allowed_zones: product.allowed_zones || [],
     unavailable_note: product.unavailable_note || "",
     ...Object.fromEntries(TAG_OPTIONS.map((t) => [t.key, !!product[t.key]])),
   });
@@ -610,6 +611,24 @@ function ProductDetailsModal({ product, pin, products, onClose, onSaved }) {
           <input type="time" value={form.happy_from} onChange={(e) => setForm((f) => ({ ...f, happy_from: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5" />
           <span className="text-stone-300 text-xs">–</span>
           <input type="time" value={form.happy_until} onChange={(e) => setForm((f) => ({ ...f, happy_until: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+        </div>
+
+        <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">Visibile solo in queste zone (facoltativo)</label>
+        <p className="text-[11px] text-stone-400 mb-2">Nessuna selezionata = visibile in tutte le zone (comportamento normale).</p>
+        <div className="flex gap-3 mb-4">
+          {[{ key: "piscina", label: "🏊 Piscina" }, { key: "campi", label: "🎾 Campi" }, { key: "bar", label: "🍹 Bar" }].map((z) => (
+            <label key={z.key} className="flex items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                checked={form.allowed_zones.includes(z.key)}
+                onChange={(e) => setForm((f) => ({
+                  ...f,
+                  allowed_zones: e.target.checked ? [...f.allowed_zones, z.key] : f.allowed_zones.filter((x) => x !== z.key),
+                }))}
+              />
+              {z.label}
+            </label>
+          ))}
         </div>
 
         <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">Suggerisci insieme a questo prodotto (facoltativo)</label>

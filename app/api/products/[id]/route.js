@@ -18,7 +18,7 @@ export async function PATCH(req, { params }) {
     "visible_from", "visible_until",
     "track_stock", "stock_qty", "low_stock_threshold", "unavailable_note",
     "happy_price", "happy_from", "happy_until",
-    "suggested_product_id",
+    "suggested_product_id", "allowed_zones",
   ];
   const patch = {};
   for (const k of allowedFields) if (k in fields) patch[k] = fields[k];

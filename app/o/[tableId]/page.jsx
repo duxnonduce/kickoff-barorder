@@ -599,8 +599,13 @@ export default function OrderPage() {
     return dietFilters.every((key) => p[key]);
   }
 
+  function matchesZone(p) {
+    if (!p.allowed_zones || p.allowed_zones.length === 0) return true;
+    return p.allowed_zones.includes(zone?.type);
+  }
+
   function visibleProductsOf(list) {
-    return list.filter((p) => isTimeVisible(p) && matchesDietFilters(p));
+    return list.filter((p) => isTimeVisible(p) && matchesDietFilters(p) && matchesZone(p));
   }
 
   return (
