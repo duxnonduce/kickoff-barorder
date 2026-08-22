@@ -12,7 +12,10 @@ stack di PointLab.
 
 1. Vai su supabase.com, crea un nuovo progetto.
 2. Apri **SQL Editor** e incolla il contenuto di `supabase/schema.sql`, esegui.
-3. In **Project Settings → API** copia: `Project URL`, `anon public key`,
+3. Se stai aggiornando un progetto già esistente (non partendo da zero),
+   esegui anche in ordine i file dentro `supabase/migrations/` che non hai
+   ancora lanciato — sono numerati, vanno eseguiti in sequenza.
+4. In **Project Settings → API** copia: `Project URL`, `anon public key`,
    `service_role key` (quest'ultima è segreta, mai esporla al browser).
 
 ## 2. Configura le variabili d'ambiente

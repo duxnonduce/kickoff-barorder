@@ -52,6 +52,9 @@ export default function OrderPage() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [todayHours, setTodayHours] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
+  const [clientRequestId, setClientRequestId] = useState(() =>
+    (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+  );
 
   const timeSlots = useMemo(() => generateTimeSlots(todayHours), [todayHours]);
 
@@ -96,7 +99,7 @@ export default function OrderPage() {
   useEffect(() => {
     async function load() {
       const { data: t } = await supabase.from("tables").select("*").eq("id", tableId).single();
-      if (!t) { setLoading(false); return; }
+      if (!t || t.archived_at) { setLoading(false); return; }
       setTable(t);
       const { data: z } = await supabase.from("zones").select("*").eq("id", t.zone_id).single();
       setZone(z);
@@ -151,7 +154,11 @@ export default function OrderPage() {
   }
 
   async function handleSubmit() {
-    if (cartItems.length === 0 || !customer) return;
+    if (cartItems.length === 0 || !customer || submitting) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("Connessione assente. Il tuo ordine non è ancora stato inviato — riprova quando torni online.");
+      return;
+    }
     if (todayHours) {
       const now = new Date();
       const [ch, cm] = todayHours.close_time.slice(0, 5).split(":").map(Number);
@@ -175,7 +182,8 @@ export default function OrderPage() {
 
       const requestedIso = requestedTime === "asap" ? null : requestedTime;
 
-      const { data: order, error: orderErr } = await supabase
+      let order, orderErr;
+      ({ data: order, error: orderErr } = await supabase
         .from("orders")
         .insert({
           table_id: table.id,
@@ -188,9 +196,29 @@ export default function OrderPage() {
           customer_phone: customer.phone,
           customer_email: customer.email || null,
           requested_time: requestedIso,
+          client_request_id: clientRequestId,
         })
         .select()
-        .single();
+        .single());
+
+      // Se questo client_request_id esiste già (es. doppio tap, risposta persa
+      // per rete lenta), non è un errore: recupero l'ordine già creato invece
+      // di farne uno nuovo o mostrare un errore fuorviante.
+      if (orderErr && orderErr.code === "23505") {
+        const { data: existing } = await supabase
+          .from("orders")
+          .select("*, order_items(*)")
+          .eq("client_request_id", clientRequestId)
+          .single();
+        if (existing) {
+          setPlacedOrder({ ...existing, items: existing.order_items });
+          setCart({});
+          setNote("");
+          setCheckoutOpen(false);
+          setClientRequestId(crypto.randomUUID());
+          return;
+        }
+      }
       if (orderErr) throw orderErr;
 
       const items = cartItems.map((i) => ({
@@ -207,6 +235,7 @@ export default function OrderPage() {
       setCart({});
       setNote("");
       setCheckoutOpen(false);
+      setClientRequestId(crypto.randomUUID());
     } catch (e) {
       setError("Non sono riuscito a inviare l'ordine. Riprova.");
       console.error(e);
@@ -323,10 +352,18 @@ export default function OrderPage() {
 
 function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTime, setRequestedTime, timeSlots, total, customer, saveCustomer, onClose, onSubmit, submitting, error }) {
   const [form, setForm] = useState(customer || { name: "", email: "", phone: "" });
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [marketingConsent, setMarketingConsent] = useState(false);
 
   function handleConfirmDetails() {
-    if (!form.name.trim() || !form.phone.trim()) return;
-    saveCustomer({ name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim() });
+    if (!form.name.trim() || !form.phone.trim() || !privacyAccepted) return;
+    saveCustomer({
+      name: form.name.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      privacyAccepted: true,
+      marketingConsent,
+    });
   }
 
   return (
@@ -344,7 +381,17 @@ function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTim
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Nome e cognome" className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2" />
               <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Numero di telefono" type="tel" className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2" />
               <input value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="Email (facoltativa)" type="email" className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2" />
-              <button onClick={handleConfirmDetails} disabled={!form.name.trim() || !form.phone.trim()} className="w-full bg-stone-900 text-white text-sm font-semibold rounded-lg py-2.5 disabled:opacity-40">
+
+              <label className="flex items-start gap-2 pt-1 text-xs text-stone-600">
+                <input type="checkbox" checked={privacyAccepted} onChange={(e) => setPrivacyAccepted(e.target.checked)} className="mt-0.5" />
+                <span>Ho letto e accetto l'<a href="/privacy" target="_blank" className="underline">informativa privacy</a> per il trattamento dei miei dati necessari a gestire l'ordine. *</span>
+              </label>
+              <label className="flex items-start gap-2 text-xs text-stone-600">
+                <input type="checkbox" checked={marketingConsent} onChange={(e) => setMarketingConsent(e.target.checked)} className="mt-0.5" />
+                <span>Voglio ricevere comunicazioni su offerte e novità (facoltativo).</span>
+              </label>
+
+              <button onClick={handleConfirmDetails} disabled={!form.name.trim() || !form.phone.trim() || !privacyAccepted} className="w-full bg-stone-900 text-white text-sm font-semibold rounded-lg py-2.5 disabled:opacity-40">
                 Conferma dati
               </button>
             </div>

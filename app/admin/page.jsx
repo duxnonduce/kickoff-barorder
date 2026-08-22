@@ -30,7 +30,7 @@ function AdminDashboard({ pin }) {
   async function loadAll() {
     const [{ data: z }, { data: t }, { data: c }, { data: p }] = await Promise.all([
       supabase.from("zones").select("*"),
-      supabase.from("tables").select("*"),
+      supabase.from("tables").select("*").is("archived_at", null),
       supabase.from("categories").select("*").order("sort_order"),
       supabase.from("products").select("*").order("name"),
     ]);
@@ -220,8 +220,13 @@ function AdminDashboard({ pin }) {
                 <div className="text-sm font-medium">{c.name}</div>
                 <div className="text-xs text-stone-500">{c.phone}{c.email ? ` · ${c.email}` : ""}</div>
               </div>
-              <div className="text-xs text-stone-400">
-                dal {new Date(c.created_at).toLocaleDateString("it-IT")}
+              <div className="flex items-center gap-3">
+                {c.marketing_consent && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Marketing OK</span>
+                )}
+                <div className="text-xs text-stone-400">
+                  dal {new Date(c.created_at).toLocaleDateString("it-IT")}
+                </div>
               </div>
             </div>
           ))}

@@ -19,6 +19,7 @@ create table if not exists tables (
   id uuid primary key default gen_random_uuid(),
   zone_id uuid references zones(id) on delete cascade,
   label text not null,
+  archived_at timestamptz,
   created_at timestamptz default now()
 );
 
@@ -38,6 +39,7 @@ create table if not exists products (
   price numeric(10,2) not null,
   available boolean not null default true,
   prep_min int default 5,
+  archived_at timestamptz,
   created_at timestamptz default now()
 );
 
@@ -52,6 +54,9 @@ create table if not exists customers (
   name text not null,
   email text,
   phone text not null unique,
+  privacy_accepted_at timestamptz,
+  marketing_consent boolean not null default false,
+  marketing_consent_at timestamptz,
   created_at timestamptz default now()
 );
 
@@ -74,6 +79,7 @@ create table if not exists orders (
   customer_phone text,
   customer_email text,
   requested_time timestamptz, -- null = "il prima possibile"
+  client_request_id text,
   created_at timestamptz default now(),
   accepted_at timestamptz,
   printed_at timestamptz
@@ -158,3 +164,7 @@ insert into opening_hours (day_of_week, open_time, close_time, closed)
 select d, '08:00', '23:00', false
 from generate_series(0, 6) as d
 on conflict (day_of_week) do nothing;
+
+-- Idempotenza: evita ordini duplicati da doppio invio
+create unique index if not exists orders_client_request_id_key
+  on orders (client_request_id) where client_request_id is not null;

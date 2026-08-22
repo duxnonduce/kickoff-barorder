@@ -23,7 +23,12 @@ export async function DELETE(req) {
   if (!checkPin(pin, "admin")) {
     return NextResponse.json({ error: "PIN non valido" }, { status: 401 });
   }
-  const { error } = await supabaseAdmin.from("tables").delete().eq("id", id);
+  // Soft delete: la postazione sparisce dalla lista attiva ma resta
+  // agganciata agli ordini storici che la referenziano, per non perdere dati.
+  const { error } = await supabaseAdmin
+    .from("tables")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

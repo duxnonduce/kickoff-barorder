@@ -28,6 +28,7 @@ function BarDashboard({ pin }) {
   const [products, setProducts] = useState([]);
   const [tab, setTab] = useState("coda");
   const [receiptOrder, setReceiptOrder] = useState(null);
+  const [connected, setConnected] = useState(true);
 
   async function loadAll() {
     const [{ data: o }, { data: t }, { data: z }, { data: p }] = await Promise.all([
@@ -47,7 +48,14 @@ function BarDashboard({ pin }) {
     const channel = supabase
       .channel("bar-orders")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadAll())
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          setConnected(true);
+          loadAll(); // riallineo nel caso mi sia perso eventi durante una disconnessione
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          setConnected(false);
+        }
+      });
     return () => supabase.removeChannel(channel);
   }, []);
 
@@ -83,6 +91,10 @@ function BarDashboard({ pin }) {
         <div className="flex items-center gap-3">
           <img src="/logo-icon.png" alt="KickOff" className="h-9 w-auto" />
           <h1 className="text-2xl font-bold tracking-tight">Coda ordini</h1>
+          <span className={`flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-full ${connected ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-700"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-600" : "bg-rose-600 animate-pulse"}`} />
+            {connected ? "Sistema online" : "Connessione persa"}
+          </span>
         </div>
         <div className="flex gap-1 bg-stone-100 p-1 rounded-lg text-sm">
           {["coda", "prodotti", "orari"].map((t) => (
