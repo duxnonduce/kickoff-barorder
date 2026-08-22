@@ -30,6 +30,7 @@ function AdminDashboard({ pin, staffName }) {
   const [newProduct, setNewProduct] = useState({ name: "", price: "", category_id: "", station: "bar" });
   const [qrPreview, setQrPreview] = useState(null);
   const [optionsProduct, setOptionsProduct] = useState(null); // prodotto per cui gestisco varianti/aggiunte
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [detailsProduct, setDetailsProduct] = useState(null); // prodotto per cui gestisco foto/tag/stock/orari
 
   async function loadAll() {
@@ -259,7 +260,7 @@ function AdminDashboard({ pin, staffName }) {
             <div className="text-sm text-stone-400 italic px-4 py-6 text-center">Nessun cliente registrato ancora.</div>
           )}
           {customers.map((c) => (
-            <div key={c.id} className="flex items-center justify-between px-4 py-3">
+            <button key={c.id} onClick={() => setSelectedCustomer(c)} className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-stone-50">
               <div>
                 <div className="text-sm font-medium">{c.name}</div>
                 <div className="text-xs text-stone-500">{c.phone}{c.email ? ` · ${c.email}` : ""}</div>
@@ -272,7 +273,7 @@ function AdminDashboard({ pin, staffName }) {
                   dal {new Date(c.created_at).toLocaleDateString("it-IT")}
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -287,6 +288,9 @@ function AdminDashboard({ pin, staffName }) {
       )}
       {detailsProduct && (
         <ProductDetailsModal product={detailsProduct} pin={pin} products={products} onClose={() => setDetailsProduct(null)} onSaved={loadAll} />
+      )}
+      {selectedCustomer && (
+        <CustomerDetailModal customer={selectedCustomer} pin={pin} onClose={() => setSelectedCustomer(null)} />
       )}
     </div>
   );
@@ -999,6 +1003,73 @@ function ActivityLogPanel({ pin }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function CustomerDetailModal({ customer, pin, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/customers/${customer.id}/stats?pin=${encodeURIComponent(pin)}`)
+      .then((r) => r.json())
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, [customer.id]);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-30 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold">{customer.name}</h2>
+          <button onClick={onClose}><X className="h-4 w-4 text-stone-400" /></button>
+        </div>
+        <p className="text-xs text-stone-400 mb-4">{customer.phone}{customer.email ? ` · ${customer.email}` : ""}</p>
+
+        {loading && <div className="text-sm text-stone-400 py-6 text-center">Carico…</div>}
+
+        {!loading && data && (
+          <>
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <div className="bg-stone-50 border border-stone-200 rounded-lg p-3">
+                <div className="text-xl font-bold">{data.stats.orderCount}</div>
+                <div className="text-xs text-stone-400">Ordini</div>
+              </div>
+              <div className="bg-stone-50 border border-stone-200 rounded-lg p-3">
+                <div className="text-xl font-bold">€{data.stats.totalSpent.toFixed(2)}</div>
+                <div className="text-xs text-stone-400">Spesa totale</div>
+              </div>
+              <div className="bg-stone-50 border border-stone-200 rounded-lg p-3">
+                <div className="text-xl font-bold">€{data.stats.avgTicket.toFixed(2)}</div>
+                <div className="text-xs text-stone-400">Scontrino medio</div>
+              </div>
+              <div className="bg-stone-50 border border-stone-200 rounded-lg p-3">
+                <div className="text-xl font-bold">{data.stats.avgRating != null ? `⭐ ${data.stats.avgRating.toFixed(1)}` : "—"}</div>
+                <div className="text-xs text-stone-400">Valutazione media</div>
+              </div>
+            </div>
+            {data.stats.favoriteProduct && (
+              <div className="text-sm text-stone-600 mb-1">Prodotto preferito: <b>{data.stats.favoriteProduct}</b></div>
+            )}
+            {data.stats.lastOrderAt && (
+              <div className="text-sm text-stone-600 mb-4">Ultimo ordine: {new Date(data.stats.lastOrderAt).toLocaleDateString("it-IT")}</div>
+            )}
+
+            <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Ordini recenti</div>
+            <div className="border border-stone-200 rounded-lg divide-y divide-stone-100">
+              {data.recentOrders.length === 0 && <div className="text-sm text-stone-400 italic px-3 py-3 text-center">Nessun ordine ancora.</div>}
+              {data.recentOrders.map((o, i) => (
+                <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <span className="font-mono font-semibold">{o.code}</span>
+                  <span className="text-stone-400">{new Date(o.created_at).toLocaleDateString("it-IT")}</span>
+                  <span className="font-semibold">€{Number(o.total).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

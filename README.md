@@ -80,6 +80,32 @@ comunque due scontrini separati dalla stessa stampante.
 Da quel momento: ogni volta che il bar preme "Accetta" su un ordine, le
 comande escono in automatico sulla stampante fisica.
 
+## Report serale automatico via email
+
+Ogni giorno, di default alle 20:00 UTC (circa le 21:00-22:00 in Italia,
+a seconda dell'ora legale), un cron job invia un'email di riepilogo con
+ordini, ricavi, scontrino medio, tempo medio di preparazione, prodotto
+più venduto e ordini rifiutati.
+
+Per attivarlo:
+1. Crea un account su [resend.com](https://resend.com) (ha un piano
+   gratuito), copia la `RESEND_API_KEY`.
+2. Su Vercel, aggiungi le variabili `RESEND_API_KEY`, `REPORT_EMAIL`
+   (l'indirizzo o gli indirizzi, separati da virgola, a cui inviarlo) e
+   `CRON_SECRET` (una stringa a caso, es. generata da un password
+   manager) — tutte descritte in `.env.example`.
+3. Il file `vercel.json` nel progetto configura già l'orario del cron.
+   Per cambiarlo, modifica la riga `schedule` (formato cron standard,
+   orari in UTC).
+4. Senza dominio verificato su Resend, puoi comunque testare subito
+   usando l'indirizzo di prova `onboarding@resend.dev` come mittente
+   (già impostato di default) — funziona solo per email verso il tuo
+   stesso indirizzo registrato su Resend. Per mandarlo a chiunque,
+   verifica un dominio tuo su Resend e aggiorna `REPORT_FROM_EMAIL`.
+
+Se non configuri queste variabili, il sito funziona comunque normalmente:
+il cron gira ma non invia nulla, senza errori.
+
 ## PWA — installabile su telefono
 
 Il sito è installabile come app: su Android/Chrome compare il prompt
