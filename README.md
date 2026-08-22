@@ -80,6 +80,13 @@ comunque due scontrini separati dalla stessa stampante.
 Da quel momento: ogni volta che il bar preme "Accetta" su un ordine, le
 comande escono in automatico sulla stampante fisica.
 
+## PWA — installabile su telefono
+
+Il sito è installabile come app: su Android/Chrome compare il prompt
+"Installa app" automaticamente, su iPhone/Safari si fa da menu Condividi →
+"Aggiungi a Home". Utile soprattutto per lo staff, che può tenere `/bar`
+come un'icona sulla home invece di riaprire il browser ogni volta.
+
 ## Cosa manca per una v2 più robusta
 
 Questa è una prima versione pensata per partire in fretta, non ancora

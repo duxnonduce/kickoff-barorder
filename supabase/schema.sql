@@ -107,6 +107,8 @@ create table if not exists orders (
   rating int check (rating between 1 and 5),
   rating_comment text,
   rated_at timestamptz,
+  reprint_requested_at timestamptz,
+  reprint_count int not null default 0,
   created_at timestamptz default now(),
   accepted_at timestamptz,
   completed_at timestamptz,

@@ -76,6 +76,16 @@ function BarDashboard({ pin }) {
   const tableOf = (id) => tables.find((t) => t.id === id);
   const zoneOf = (id) => zones.find((z) => z.id === id);
 
+  async function handleReprint(order) {
+    const res = await fetch(`/api/orders/${order.id}/reprint`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    if (res.ok) setReceiptOrder(order);
+    loadAll();
+  }
+
   async function setStatus(order, status, reject_reason) {
     const res = await fetch(`/api/orders/${order.id}`, {
       method: "PATCH",
@@ -177,14 +187,14 @@ function BarDashboard({ pin }) {
               </div>
             )}
           />
-          <Column title="In preparazione" icon={UtensilsCrossed} orders={active} tableOf={tableOf} zoneOf={zoneOf}
+          <Column title="In preparazione" icon={UtensilsCrossed} orders={active} tableOf={tableOf} zoneOf={zoneOf} onReprint={handleReprint}
             actions={(o) => o.status === "accettato" ? (
               <button onClick={() => setStatus(o, "pronto")} className="w-full text-xs font-semibold py-1.5 rounded-md bg-emerald-700 text-white">Segna come pronto</button>
             ) : (
               <button onClick={() => setStatus(o, "completato")} className="w-full text-xs font-semibold py-1.5 rounded-md bg-stone-700 text-white">{o.type === "ritiro" ? "Ritirato" : "Consegnato"}</button>
             )}
           />
-          <Column title="Storico" icon={Receipt} orders={done} tableOf={tableOf} zoneOf={zoneOf} muted />
+          <Column title="Storico" icon={Receipt} orders={done} tableOf={tableOf} zoneOf={zoneOf} muted onReprint={handleReprint} />
         </div>
       )}
 
@@ -268,7 +278,7 @@ function RejectModal({ order, onClose, onConfirm }) {
   );
 }
 
-function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted }) {
+function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted, onReprint }) {
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-3">
@@ -329,6 +339,18 @@ function Column({ title, icon: Icon, orders, tableOf, zoneOf, actions, muted }) 
                 <div className="text-xs text-rose-600 mb-2">Motivo: {o.reject_reason}</div>
               )}
               <div className="flex justify-between text-xs font-bold mb-2"><span>Totale</span><span className="tabular-nums">€{Number(o.total).toFixed(2)}</span></div>
+              {o.printed_at && (
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] text-stone-400">
+                    {o.reprint_count > 0 ? `Ristampato ${o.reprint_count} volt${o.reprint_count === 1 ? "a" : "e"}` : "Stampato"}
+                  </span>
+                  {onReprint && (
+                    <button onClick={() => onReprint(o)} className="flex items-center gap-1 text-[11px] font-semibold text-stone-500 hover:text-stone-800">
+                      <Printer className="h-3 w-3" /> Ristampa
+                    </button>
+                  )}
+                </div>
+              )}
               {actions && actions(o)}
             </div>
           );

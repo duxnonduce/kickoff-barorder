@@ -128,6 +128,12 @@ supabase
       const order = payload.new;
       if (order.status === "accettato" && !order.printed_at) {
         printOrder(order);
+      } else if (order.reprint_requested_at) {
+        // Ristampa richiesta manualmente dal bar: stampa di nuovo e azzera
+        // il flag, senza toccare printed_at (che resta la prima stampa).
+        printOrder(order).then(() =>
+          supabase.from("orders").update({ reprint_requested_at: null }).eq("id", order.id)
+        );
       }
     }
   )
