@@ -17,7 +17,7 @@ export async function GET(req) {
 
   const { data: orders, error } = await supabaseAdmin
     .from("orders")
-    .select("*, order_items(*), zones:zone_id(name)")
+    .select("*, order_items(*), zones:zone_id(name), tables:table_id(label)")
     .gte("created_at", from)
     .lte("created_at", to);
 
@@ -76,6 +76,20 @@ export async function GET(req) {
   const avgRating = ratedOrders.length > 0 ? ratedOrders.reduce((s, o) => s + o.rating, 0) / ratedOrders.length : null;
   const lowRatings = ratedOrders.filter((o) => o.rating <= 2).map((o) => ({ code: o.code, rating: o.rating, comment: o.rating_comment }));
 
+  const ordersExport = (orders || []).map((o) => ({
+    code: o.code,
+    created_at: o.created_at,
+    status: o.status,
+    type: o.type,
+    table_label: o.tables?.label || null,
+    customer_name: o.customer_name,
+    customer_phone: o.customer_phone,
+    total: o.total,
+    discount_amount: o.discount_amount,
+    coupon_code: o.coupon_code,
+    rating: o.rating,
+  }));
+
   return NextResponse.json({
     kpis: {
       totalOrders,
@@ -92,5 +106,6 @@ export async function GET(req) {
     salesByZone,
     salesByProduct,
     lowRatings,
+    orders: ordersExport,
   });
 }

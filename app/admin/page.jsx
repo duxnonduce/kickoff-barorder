@@ -10,6 +10,19 @@ import { Plus, Trash2, Tag, Settings2, Sliders, X, Info, TrendingUp, Download, T
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kickoff-ordina.vercel.app";
 
+function downloadCsv(filename, headers, rows) {
+  const csv = [headers, ...rows]
+    .map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }); // BOM per Excel/accenti
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function AdminPage() {
   const [pin, setPin] = useState(null);
   const [staffName, setStaffName] = useState(null);
@@ -193,6 +206,28 @@ function AdminDashboard({ pin, staffName }) {
               <Plus className="h-3.5 w-3.5" /> Aggiungi
             </button>
           </div>
+          {products.length > 0 && (
+            <div className="flex justify-end mb-2">
+              <button
+                onClick={() => downloadCsv(
+                  `prodotti-${new Date().toISOString().slice(0, 10)}.csv`,
+                  ["Nome", "Categoria", "Prezzo €", "Postazione", "Attivo", "Costo €", "Stock"],
+                  products.map((p) => [
+                    p.name,
+                    categories.find((c) => c.id === p.category_id)?.name || "",
+                    Number(p.price).toFixed(2),
+                    p.station,
+                    p.available ? "Sì" : "No",
+                    p.cost_price != null ? Number(p.cost_price).toFixed(2) : "",
+                    p.track_stock ? (p.stock_qty ?? 0) : "",
+                  ])
+                )}
+                className="flex items-center gap-1.5 text-xs font-semibold border border-stone-300 text-stone-600 px-3 py-1.5 rounded-lg"
+              >
+                <Download className="h-3.5 w-3.5" /> Esporta CSV
+              </button>
+            </div>
+          )}
           <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
             {products.map((p) => (
               <div key={p.id} className="flex items-center gap-3 px-4 py-3">
@@ -255,26 +290,42 @@ function AdminDashboard({ pin, staffName }) {
       )}
 
       {tab === "clienti" && (
-        <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
-          {customers.length === 0 && (
-            <div className="text-sm text-stone-400 italic px-4 py-6 text-center">Nessun cliente registrato ancora.</div>
-          )}
-          {customers.map((c) => (
-            <button key={c.id} onClick={() => setSelectedCustomer(c)} className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-stone-50">
-              <div>
-                <div className="text-sm font-medium">{c.name}</div>
-                <div className="text-xs text-stone-500">{c.phone}{c.email ? ` · ${c.email}` : ""}</div>
-              </div>
-              <div className="flex items-center gap-3">
-                {c.marketing_consent && (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Marketing OK</span>
+        <div>
+          {customers.length > 0 && (
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={() => downloadCsv(
+                  `clienti-${new Date().toISOString().slice(0, 10)}.csv`,
+                  ["Nome", "Telefono", "Email", "Consenso marketing", "Registrato dal"],
+                  customers.map((c) => [c.name, c.phone, c.email || "", c.marketing_consent ? "Sì" : "No", new Date(c.created_at).toLocaleDateString("it-IT")])
                 )}
-                <div className="text-xs text-stone-400">
-                  dal {new Date(c.created_at).toLocaleDateString("it-IT")}
+                className="flex items-center gap-1.5 text-xs font-semibold border border-stone-300 text-stone-600 px-3 py-1.5 rounded-lg"
+              >
+                <Download className="h-3.5 w-3.5" /> Esporta CSV
+              </button>
+            </div>
+          )}
+          <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+            {customers.length === 0 && (
+              <div className="text-sm text-stone-400 italic px-4 py-6 text-center">Nessun cliente registrato ancora.</div>
+            )}
+            {customers.map((c) => (
+              <button key={c.id} onClick={() => setSelectedCustomer(c)} className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-stone-50">
+                <div>
+                  <div className="text-sm font-medium">{c.name}</div>
+                  <div className="text-xs text-stone-500">{c.phone}{c.email ? ` · ${c.email}` : ""}</div>
                 </div>
-              </div>
-            </button>
-          ))}
+                <div className="flex items-center gap-3">
+                  {c.marketing_consent && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Marketing OK</span>
+                  )}
+                  <div className="text-xs text-stone-400">
+                    dal {new Date(c.created_at).toLocaleDateString("it-IT")}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {tab === "orari" && <HoursAndAnnouncements pin={pin} />}
@@ -694,18 +745,34 @@ function AnalyticsPanel({ pin }) {
 
   useEffect(() => { load(); }, [preset]);
 
-  function exportCsv() {
+  function exportProductsCsv() {
     if (!data) return;
-    const rows = [["Prodotto", "Quantità", "Ricavi €", "Margine €"]];
-    data.salesByProduct.forEach((p) => rows.push([p.name, p.qty, p.revenue.toFixed(2), p.margin != null ? p.margin.toFixed(2) : ""]));
-    const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `vendite-${preset}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      `vendite-prodotti-${preset}-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["Prodotto", "Quantità", "Ricavi €", "Margine €"],
+      data.salesByProduct.map((p) => [p.name, p.qty, p.revenue.toFixed(2), p.margin != null ? p.margin.toFixed(2) : ""])
+    );
+  }
+
+  function exportOrdersCsv() {
+    if (!data) return;
+    downloadCsv(
+      `ordini-${preset}-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["Codice", "Data/ora", "Stato", "Tipo", "Postazione", "Cliente", "Telefono", "Totale €", "Sconto €", "Coupon", "Valutazione"],
+      data.orders.map((o) => [
+        o.code,
+        new Date(o.created_at).toLocaleString("it-IT"),
+        o.status,
+        o.type,
+        o.table_label || "",
+        o.customer_name || "",
+        o.customer_phone || "",
+        Number(o.total).toFixed(2),
+        Number(o.discount_amount || 0).toFixed(2),
+        o.coupon_code || "",
+        o.rating || "",
+      ])
+    );
   }
 
   const presets = [
@@ -724,9 +791,14 @@ function AnalyticsPanel({ pin }) {
             <button key={p.id} onClick={() => setPreset(p.id)} className={`px-3 py-1.5 rounded-md font-medium ${preset === p.id ? "bg-white shadow-sm" : "text-stone-500"}`}>{p.label}</button>
           ))}
         </div>
-        <button onClick={exportCsv} disabled={!data} className="flex items-center gap-1.5 text-xs font-semibold border border-stone-300 text-stone-600 px-3 py-1.5 rounded-lg disabled:opacity-40">
-          <Download className="h-3.5 w-3.5" /> Esporta CSV
-        </button>
+        <div className="flex gap-2">
+          <button onClick={exportOrdersCsv} disabled={!data} className="flex items-center gap-1.5 text-xs font-semibold border border-stone-300 text-stone-600 px-3 py-1.5 rounded-lg disabled:opacity-40">
+            <Download className="h-3.5 w-3.5" /> Esporta ordini
+          </button>
+          <button onClick={exportProductsCsv} disabled={!data} className="flex items-center gap-1.5 text-xs font-semibold border border-stone-300 text-stone-600 px-3 py-1.5 rounded-lg disabled:opacity-40">
+            <Download className="h-3.5 w-3.5" /> Esporta prodotti
+          </button>
+        </div>
       </div>
 
       {loading && <div className="text-sm text-stone-400 py-10 text-center">Calcolo le statistiche…</div>}
