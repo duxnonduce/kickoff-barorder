@@ -44,6 +44,7 @@ create table if not exists products (
   happy_price numeric(10,2),
   happy_from time,
   happy_until time,
+  suggested_product_id uuid references products(id),
   station text not null default 'bar' check (station in ('bar', 'cucina')),
   tag_vegetarian boolean not null default false,
   tag_vegan boolean not null default false,

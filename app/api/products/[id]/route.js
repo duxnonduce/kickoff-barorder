@@ -18,6 +18,7 @@ export async function PATCH(req, { params }) {
     "visible_from", "visible_until",
     "track_stock", "stock_qty", "low_stock_threshold", "unavailable_note",
     "happy_price", "happy_from", "happy_until",
+    "suggested_product_id",
   ];
   const patch = {};
   for (const k of allowedFields) if (k in fields) patch[k] = fields[k];
@@ -29,6 +30,7 @@ export async function PATCH(req, { params }) {
   if (patch.happy_price === "") patch.happy_price = null;
   if (patch.happy_from === "") patch.happy_from = null;
   if (patch.happy_until === "") patch.happy_until = null;
+  if (patch.suggested_product_id === "") patch.suggested_product_id = null;
 
   const { data, error } = await supabaseAdmin
     .from("products")

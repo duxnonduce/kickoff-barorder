@@ -87,6 +87,7 @@ export default function OrderPage() {
   const [lastOrder, setLastOrder] = useState(null);
   const [reorderDismissed, setReorderDismissed] = useState(false);
   const [customizeProduct, setCustomizeProduct] = useState(null);
+  const [suggestion, setSuggestion] = useState(null);
   const [dietFilters, setDietFilters] = useState([]);
   const [couponCode, setCouponCode] = useState("");
   const [couponApplied, setCouponApplied] = useState(null); // { code, discount_amount, message }
@@ -274,6 +275,7 @@ export default function OrderPage() {
       }
       return [...prev, { id: newId(), productId: product.id, qty: 1, options: [], note: "" }];
     });
+    checkSuggestion(product);
   }
 
   function decrementSimple(product) {
@@ -289,6 +291,22 @@ export default function OrderPage() {
 
   function addCustomizedLine(product, options, qty, lineNote) {
     setCartLines((prev) => [...prev, { id: newId(), productId: product.id, qty, options, note: lineNote }]);
+    checkSuggestion(product);
+  }
+
+  function checkSuggestion(product) {
+    if (!product.suggested_product_id) return;
+    const suggested = products.find((p) => p.id === product.suggested_product_id && p.available);
+    if (!suggested) return;
+    const alreadyInCart = cartLines.some((l) => l.productId === suggested.id);
+    if (alreadyInCart) return;
+    setSuggestion(suggested);
+  }
+
+  function acceptSuggestion() {
+    if (!suggestion) return;
+    addSimple(suggestion);
+    setSuggestion(null);
   }
 
   function updateLineQty(lineId, delta) {
@@ -485,6 +503,7 @@ export default function OrderPage() {
     setCouponApplied(null);
     setCouponCode("");
     setCouponError(null);
+    setSuggestion(null);
   }
 
   if (loading) return <div className="min-h-screen grid place-items-center text-stone-400 text-sm">Carico il menu…</div>;
@@ -637,15 +656,29 @@ export default function OrderPage() {
         );
       })}
 
-      {cartLines.length > 0 && orderingStatus.open && (
-        <div className="fixed bottom-4 left-4 right-4 max-w-lg mx-auto bg-stone-900 text-white rounded-2xl p-4 shadow-xl">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-stone-300">{cartTotalQty} prodott{cartTotalQty === 1 ? "o" : "i"} nel carrello</span>
-            <span className="font-bold text-lg tabular-nums">€{total.toFixed(2)}</span>
+      {(cartLines.length > 0 && orderingStatus.open) && (
+        <div className="fixed bottom-4 left-4 right-4 max-w-lg mx-auto space-y-2">
+          {suggestion && (
+            <div className="bg-white border border-orange-200 rounded-2xl p-3 shadow-xl flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-xs text-stone-500">Vuoi aggiungere anche</div>
+                <div className="text-sm font-semibold truncate">{suggestion.name} <span className="text-stone-400 font-normal">· €{Number(suggestion.price).toFixed(2)}</span></div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => setSuggestion(null)} className="text-xs text-stone-400 px-2">No</button>
+                <button onClick={acceptSuggestion} className="text-xs font-semibold bg-orange-700 text-white px-3 py-1.5 rounded-full">Aggiungi</button>
+              </div>
+            </div>
+          )}
+          <div className="bg-stone-900 text-white rounded-2xl p-4 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm text-stone-300">{cartTotalQty} prodott{cartTotalQty === 1 ? "o" : "i"} nel carrello</span>
+              <span className="font-bold text-lg tabular-nums">€{total.toFixed(2)}</span>
+            </div>
+            <button onClick={() => setCheckoutOpen(true)} className="w-full bg-orange-700 hover:bg-orange-600 transition rounded-lg py-3 font-semibold text-sm">
+              Continua
+            </button>
           </div>
-          <button onClick={() => setCheckoutOpen(true)} className="w-full bg-orange-700 hover:bg-orange-600 transition rounded-lg py-3 font-semibold text-sm">
-            Continua
-          </button>
         </div>
       )}
 

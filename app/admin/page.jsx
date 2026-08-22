@@ -267,7 +267,7 @@ function AdminDashboard({ pin }) {
         <ProductOptionsModal product={optionsProduct} pin={pin} onClose={() => setOptionsProduct(null)} />
       )}
       {detailsProduct && (
-        <ProductDetailsModal product={detailsProduct} pin={pin} onClose={() => setDetailsProduct(null)} onSaved={loadAll} />
+        <ProductDetailsModal product={detailsProduct} pin={pin} products={products} onClose={() => setDetailsProduct(null)} onSaved={loadAll} />
       )}
     </div>
   );
@@ -472,7 +472,7 @@ const TAG_OPTIONS = [
   { key: "tag_bestseller", label: "🔥 Bestseller" },
 ];
 
-function ProductDetailsModal({ product, pin, onClose, onSaved }) {
+function ProductDetailsModal({ product, pin, products, onClose, onSaved }) {
   const [form, setForm] = useState({
     description: product.description || "",
     image_url: product.image_url || "",
@@ -485,6 +485,7 @@ function ProductDetailsModal({ product, pin, onClose, onSaved }) {
     happy_price: product.happy_price ?? "",
     happy_from: product.happy_from ? product.happy_from.slice(0, 5) : "",
     happy_until: product.happy_until ? product.happy_until.slice(0, 5) : "",
+    suggested_product_id: product.suggested_product_id || "",
     unavailable_note: product.unavailable_note || "",
     ...Object.fromEntries(TAG_OPTIONS.map((t) => [t.key, !!product[t.key]])),
   });
@@ -587,6 +588,19 @@ function ProductDetailsModal({ product, pin, onClose, onSaved }) {
           <span className="text-stone-300 text-xs">–</span>
           <input type="time" value={form.happy_until} onChange={(e) => setForm((f) => ({ ...f, happy_until: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5" />
         </div>
+
+        <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">Suggerisci insieme a questo prodotto (facoltativo)</label>
+        <p className="text-[11px] text-stone-400 mb-2">Il cliente vedrà un piccolo suggerimento quando aggiunge questo prodotto al carrello.</p>
+        <select
+          value={form.suggested_product_id}
+          onChange={(e) => setForm((f) => ({ ...f, suggested_product_id: e.target.value }))}
+          className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2 mb-4"
+        >
+          <option value="">Nessun suggerimento</option>
+          {(products || []).filter((p) => p.id !== product.id).map((p) => (
+            <option key={p.id} value={p.id}>{p.name} — €{Number(p.price).toFixed(2)}</option>
+          ))}
+        </select>
 
         <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">
           Messaggio quando non disponibile (facoltativo)
