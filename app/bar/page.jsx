@@ -33,6 +33,7 @@ function BarDashboard({ pin, staffName }) {
   const [receiptOrder, setReceiptOrder] = useState(null);
   const [connected, setConnected] = useState(true);
   const [rejectingOrder, setRejectingOrder] = useState(null);
+  const [modifyingOrder, setModifyingOrder] = useState(null);
   const [assistance, setAssistance] = useState([]);
 
   async function loadAll() {
@@ -86,6 +87,20 @@ function BarDashboard({ pin, staffName }) {
       body: JSON.stringify({ pin }),
     });
     if (res.ok) setReceiptOrder(order);
+    loadAll();
+  }
+
+  async function handleModifyOrder(order, removeItemIds) {
+    const res = await fetch(`/api/orders/${order.id}/modify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, removeItemIds }),
+    });
+    if (res.ok) {
+      logActivity("Ordine modificato e accettato", `${order.code} — rimossi ${removeItemIds.length} prodott${removeItemIds.length === 1 ? "o" : "i"}`);
+      setReceiptOrder(order);
+    }
+    setModifyingOrder(null);
     loadAll();
   }
 
@@ -200,9 +215,16 @@ function BarDashboard({ pin, staffName }) {
         <div className="grid md:grid-cols-3 gap-5">
           <Column title="Nuovi · da accettare" icon={Clock} orders={pending} tableOf={tableOf} zoneOf={zoneOf}
             actions={(o) => (
-              <div className="flex gap-2">
-                <button onClick={() => setRejectingOrder(o)} className="flex-1 flex items-center justify-center gap-1 text-xs font-semibold py-1.5 rounded-md border border-rose-300 text-rose-700"><XCircle className="h-3.5 w-3.5" /> Rifiuta</button>
-                <button onClick={() => setStatus(o, "accettato")} className="flex-1 flex items-center justify-center gap-1 text-xs font-semibold py-1.5 rounded-md bg-stone-900 text-white"><CheckCircle2 className="h-3.5 w-3.5" /> Accetta</button>
+              <div className="space-y-1.5">
+                <div className="flex gap-2">
+                  <button onClick={() => setRejectingOrder(o)} className="flex-1 flex items-center justify-center gap-1 text-xs font-semibold py-1.5 rounded-md border border-rose-300 text-rose-700"><XCircle className="h-3.5 w-3.5" /> Rifiuta</button>
+                  <button onClick={() => setStatus(o, "accettato")} className="flex-1 flex items-center justify-center gap-1 text-xs font-semibold py-1.5 rounded-md bg-stone-900 text-white"><CheckCircle2 className="h-3.5 w-3.5" /> Accetta</button>
+                </div>
+                {(o.order_items || []).length > 1 && (
+                  <button onClick={() => setModifyingOrder(o)} className="w-full text-[11px] font-semibold text-stone-500 hover:text-stone-800">
+                    Manca un prodotto? Modifica ed accetta
+                  </button>
+                )}
               </div>
             )}
           />
@@ -244,6 +266,13 @@ function BarDashboard({ pin, staffName }) {
           order={rejectingOrder}
           onClose={() => setRejectingOrder(null)}
           onConfirm={(reason) => { setStatus(rejectingOrder, "rifiutato", reason); setRejectingOrder(null); }}
+        />
+      )}
+      {modifyingOrder && (
+        <ModifyOrderModal
+          order={modifyingOrder}
+          onClose={() => setModifyingOrder(null)}
+          onConfirm={(removeItemIds) => handleModifyOrder(modifyingOrder, removeItemIds)}
         />
       )}
     </div>
@@ -290,6 +319,53 @@ function RejectModal({ order, onClose, onConfirm }) {
             className="flex-1 text-sm font-semibold py-2 rounded-lg bg-rose-700 text-white"
           >
             Conferma rifiuto
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModifyOrderModal({ order, onClose, onConfirm }) {
+  const [removed, setRemoved] = useState([]); // id delle righe da togliere
+  const items = order.order_items || [];
+
+  function toggle(itemId) {
+    setRemoved((prev) => (prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]));
+  }
+
+  const remainingTotal = items
+    .filter((it) => !removed.includes(it.id))
+    .reduce((s, it) => s + Number(it.price) * it.qty, 0);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 grid place-items-center z-30 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="text-sm font-semibold mb-1">Modifica ordine {order.code}</div>
+        <p className="text-xs text-stone-500 mb-3">Deseleziona i prodotti esauriti o non disponibili: il resto verrà accettato subito.</p>
+        <div className="space-y-1.5 mb-3">
+          {items.map((it) => (
+            <label key={it.id} className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-sm ${removed.includes(it.id) ? "border-stone-200 bg-stone-50 opacity-50" : "border-stone-200"}`}>
+              <span className="flex items-center gap-2">
+                <input type="checkbox" checked={!removed.includes(it.id)} onChange={() => toggle(it.id)} />
+                {it.qty}× {it.name}
+              </span>
+              <span className="text-xs text-stone-500 tabular-nums">€{(Number(it.price) * it.qty).toFixed(2)}</span>
+            </label>
+          ))}
+        </div>
+        <div className="flex items-center justify-between text-sm font-bold mb-3 border-t border-stone-100 pt-2">
+          <span>Nuovo totale</span>
+          <span className="tabular-nums">€{remainingTotal.toFixed(2)}</span>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 text-sm font-semibold py-2 rounded-lg border border-stone-300">Annulla</button>
+          <button
+            onClick={() => onConfirm(removed)}
+            disabled={removed.length === 0}
+            className="flex-1 text-sm font-semibold py-2 rounded-lg bg-stone-900 text-white disabled:opacity-40"
+          >
+            Accetta modificato
           </button>
         </div>
       </div>

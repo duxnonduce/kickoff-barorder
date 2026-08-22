@@ -315,3 +315,27 @@ drop trigger if exists trg_kickoff_decrement_stock on order_items;
 create trigger trg_kickoff_decrement_stock
   after insert on order_items
   for each row execute function kickoff_decrement_stock();
+
+-- Limite ordini attivi per cliente (max 3 pendenti/in preparazione
+-- contemporaneamente per numero di telefono), per evitare abusi.
+create or replace function kickoff_check_order_limit() returns trigger as $$
+declare
+  active_count int;
+begin
+  select count(*) into active_count
+  from orders
+  where customer_phone = new.customer_phone
+    and status in ('in_attesa', 'accettato', 'pronto');
+
+  if active_count >= 3 then
+    raise exception 'ORDER_LIMIT_EXCEEDED' using errcode = 'P0001';
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_kickoff_check_order_limit on orders;
+create trigger trg_kickoff_check_order_limit
+  before insert on orders
+  for each row execute function kickoff_check_order_limit();

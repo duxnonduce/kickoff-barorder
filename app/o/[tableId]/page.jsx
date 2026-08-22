@@ -286,10 +286,24 @@ export default function OrderPage() {
     if (!placedOrder) return;
     const channel = supabase
       .channel(`order-${placedOrder.id}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `id=eq.${placedOrder.id}` }, (payload) => {
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `id=eq.${placedOrder.id}` }, async (payload) => {
         setPlacedOrder((prev) => {
           if (prev && prev.status !== "pronto" && payload.new.status === "pronto") playReadyAlert();
           return { ...prev, ...payload.new };
+        });
+        // Se il totale è cambiato, probabilmente il bar ha modificato l'ordine
+        // (rimosso una riga esaurita): riallineo anche l'elenco prodotti mostrato.
+        setPlacedOrder((prev) => {
+          if (prev && Number(prev.total) !== Number(payload.new.total)) {
+            supabase
+              .from("order_items")
+              .select("*, order_item_options(*)")
+              .eq("order_id", placedOrder.id)
+              .then(({ data }) => {
+                if (data) setPlacedOrder((p) => ({ ...p, items: data }));
+              });
+          }
+          return prev;
         });
       })
       .subscribe();
@@ -489,6 +503,11 @@ export default function OrderPage() {
           resetCartAfterSubmit();
           return;
         }
+      }
+      if (orderErr && orderErr.message?.includes("ORDER_LIMIT_EXCEEDED")) {
+        setError("Hai già 3 ordini in corso. Aspetta che uno venga completato prima di inviarne un altro.");
+        setSubmitting(false);
+        return;
       }
       if (orderErr) throw orderErr;
 

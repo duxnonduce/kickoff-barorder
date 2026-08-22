@@ -124,8 +124,9 @@ esattamente allo standard di PointLab:
   nel registro attività — non è un secondo PIN vero e proprio, quindi
   resta comunque facile aggirarlo/saltarlo di proposito. Per un controllo
   più stringente servirebbe un vero sistema di autenticazione per persona.
-- **Anti no-show**: nessun limite ancora su "1 ordine attivo per cliente".
-  Da aggiungere se diventa un problema reale.
+- **Anti no-show**: ora c'è un limite di 3 ordini attivi contemporanei per
+  numero di telefono (protegge da abusi/spam), ma non c'è ancora una vera
+  gestione dei "clienti che non si presentano a ritirare".
 - **Notifiche**: il cliente vede lo stato aggiornarsi nella pagina aperta,
   ma non riceve una notifica push se chiude la scheda. Si può aggiungere
   un numero di telefono + SMS quando l'ordine è pronto.
