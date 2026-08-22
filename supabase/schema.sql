@@ -41,6 +41,9 @@ create table if not exists products (
   available boolean not null default true,
   prep_min int default 5,
   cost_price numeric(10,2),
+  happy_price numeric(10,2),
+  happy_from time,
+  happy_until time,
   station text not null default 'bar' check (station in ('bar', 'cucina')),
   tag_vegetarian boolean not null default false,
   tag_vegan boolean not null default false,
@@ -98,6 +101,8 @@ create table if not exists orders (
   requested_time timestamptz, -- null = "il prima possibile"
   client_request_id text,
   reject_reason text,
+  coupon_code text,
+  discount_amount numeric(10,2) not null default 0,
   created_at timestamptz default now(),
   accepted_at timestamptz,
   completed_at timestamptz,
@@ -143,6 +148,23 @@ create table if not exists order_item_options (
   price_delta numeric(10,2) not null default 0
 );
 
+-- ---------- COUPON ----------
+-- Nessuna policy RLS pubblica: i codici si verificano solo tramite
+-- l'API /api/coupons/validate (Service Role).
+create table if not exists coupons (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  discount_type text not null check (discount_type in ('percent', 'fixed')),
+  discount_value numeric(10,2) not null,
+  valid_from timestamptz,
+  valid_until timestamptz,
+  active boolean not null default true,
+  max_uses int,
+  times_used int not null default 0,
+  min_order_total numeric(10,2),
+  created_at timestamptz default now()
+);
+
 -- ---------- ORARI DI APERTURA ----------
 -- day_of_week: 0 = domenica, 1 = lunedì, ... 6 = sabato (come JS Date.getDay())
 create table if not exists opening_hours (
@@ -179,6 +201,8 @@ alter table announcements enable row level security;
 alter table product_option_groups enable row level security;
 alter table product_options enable row level security;
 alter table order_item_options enable row level security;
+alter table coupons enable row level security;
+-- coupons: nessuna policy pubblica di proposito (vedi commento sulla tabella)
 
 create policy "lettura pubblica zone" on zones for select using (true);
 create policy "lettura pubblica postazioni" on tables for select using (true);

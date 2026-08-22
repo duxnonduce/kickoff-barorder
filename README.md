@@ -93,8 +93,8 @@ esattamente allo standard di PointLab:
 - **Notifiche**: il cliente vede lo stato aggiornarsi nella pagina aperta,
   ma non riceve una notifica push se chiude la scheda. Si può aggiungere
   un numero di telefono + SMS quando l'ordine è pronto.
-- **Offerte**: sconti percentuali/happy hour automatiche non ancora
-  implementate (varianti/aggiunte e menu intelligente sì, vedi sopra).
+- **Offerte**: coupon sconto e happy hour ora ci sono (vedi sopra). Mancano
+  ancora promozioni automatiche più complesse (es. "3+1", combo prodotto+bibita).
 
 ## Struttura del progetto
 

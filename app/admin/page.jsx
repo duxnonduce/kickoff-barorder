@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { supabase } from "@/lib/supabaseClient";
 import PinGate from "@/components/PinGate";
 import HoursAndAnnouncements from "@/components/HoursAndAnnouncements";
-import { Plus, Trash2, Tag, Settings2, Sliders, X, Info, TrendingUp, Download } from "lucide-react";
+import { Plus, Trash2, Tag, Settings2, Sliders, X, Info, TrendingUp, Download, Ticket } from "lucide-react";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://kickoff-ordina.vercel.app";
 
@@ -110,6 +110,7 @@ function AdminDashboard({ pin }) {
     { id: "clienti", label: "Clienti" },
     { id: "orari", label: "Orari & Avvisi" },
     { id: "analytics", label: "Analytics" },
+    { id: "coupon", label: "Coupon" },
   ];
 
   return (
@@ -260,6 +261,7 @@ function AdminDashboard({ pin }) {
       )}
       {tab === "orari" && <HoursAndAnnouncements pin={pin} />}
       {tab === "analytics" && <AnalyticsPanel pin={pin} />}
+      {tab === "coupon" && <CouponsPanel pin={pin} />}
 
       {optionsProduct && (
         <ProductOptionsModal product={optionsProduct} pin={pin} onClose={() => setOptionsProduct(null)} />
@@ -480,6 +482,9 @@ function ProductDetailsModal({ product, pin, onClose, onSaved }) {
     stock_qty: product.stock_qty ?? "",
     low_stock_threshold: product.low_stock_threshold ?? 5,
     cost_price: product.cost_price ?? "",
+    happy_price: product.happy_price ?? "",
+    happy_from: product.happy_from ? product.happy_from.slice(0, 5) : "",
+    happy_until: product.happy_until ? product.happy_until.slice(0, 5) : "",
     unavailable_note: product.unavailable_note || "",
     ...Object.fromEntries(TAG_OPTIONS.map((t) => [t.key, !!product[t.key]])),
   });
@@ -568,6 +573,20 @@ function ProductDetailsModal({ product, pin, onClose, onSaved }) {
             </div>
           </div>
         )}
+
+        <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">Happy Hour (facoltativo)</label>
+        <p className="text-[11px] text-stone-400 mb-2">In questa fascia oraria il prezzo scende automaticamente, senza codice sconto.</p>
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            value={form.happy_price}
+            onChange={(e) => setForm((f) => ({ ...f, happy_price: e.target.value }))}
+            placeholder="Prezzo scontato €" type="number" step="0.10"
+            className="w-32 text-sm border border-stone-300 rounded-md px-2 py-1.5"
+          />
+          <input type="time" value={form.happy_from} onChange={(e) => setForm((f) => ({ ...f, happy_from: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+          <span className="text-stone-300 text-xs">–</span>
+          <input type="time" value={form.happy_until} onChange={(e) => setForm((f) => ({ ...f, happy_until: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+        </div>
 
         <label className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1 block">
           Messaggio quando non disponibile (facoltativo)
@@ -723,6 +742,110 @@ function KpiCard({ label, value, accent }) {
     <div className="bg-white border border-stone-200 rounded-xl p-3">
       <div className={`text-xl font-bold tabular-nums ${accent === "rose" ? "text-rose-600" : "text-stone-900"}`}>{value}</div>
       <div className="text-xs text-stone-400 mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function CouponsPanel({ pin }) {
+  const [coupons, setCoupons] = useState([]);
+  const [form, setForm] = useState({ code: "", discount_type: "percent", discount_value: "", valid_until: "", min_order_total: "", max_uses: "" });
+
+  async function load() {
+    const res = await fetch(`/api/coupons?pin=${encodeURIComponent(pin)}`);
+    if (res.ok) { const { coupons } = await res.json(); setCoupons(coupons || []); }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function addCoupon() {
+    if (!form.code.trim() || !form.discount_value) return;
+    await fetch("/api/coupons", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pin,
+        code: form.code,
+        discount_type: form.discount_type,
+        discount_value: form.discount_value,
+        valid_until: form.valid_until ? new Date(form.valid_until).toISOString() : null,
+        min_order_total: form.min_order_total || null,
+        max_uses: form.max_uses || null,
+      }),
+    });
+    setForm({ code: "", discount_type: "percent", discount_value: "", valid_until: "", min_order_total: "", max_uses: "" });
+    load();
+  }
+
+  async function toggleActive(c) {
+    await fetch(`/api/coupons/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, active: !c.active }),
+    });
+    load();
+  }
+
+  async function removeCoupon(id) {
+    await fetch(`/api/coupons/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    load();
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">
+        <Ticket className="h-3.5 w-3.5" /> Nuovo coupon
+      </div>
+      <div className="bg-white border border-stone-200 rounded-xl p-3 mb-6">
+        <div className="flex flex-wrap gap-2 mb-2">
+          <input value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="CODICE (es. ESTATE10)" className="flex-1 min-w-[140px] text-sm border border-stone-300 rounded-md px-2 py-1.5 uppercase" />
+          <select value={form.discount_type} onChange={(e) => setForm((f) => ({ ...f, discount_type: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5">
+            <option value="percent">% percentuale</option>
+            <option value="fixed">€ fisso</option>
+          </select>
+          <input value={form.discount_value} onChange={(e) => setForm((f) => ({ ...f, discount_value: e.target.value }))} placeholder="Valore" type="number" step="0.10" className="w-24 text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+        </div>
+        <div className="flex flex-wrap gap-2 mb-2">
+          <div>
+            <label className="text-[11px] text-stone-400 block">Scade il</label>
+            <input type="datetime-local" value={form.valid_until} onChange={(e) => setForm((f) => ({ ...f, valid_until: e.target.value }))} className="text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+          </div>
+          <div>
+            <label className="text-[11px] text-stone-400 block">Ordine minimo €</label>
+            <input value={form.min_order_total} onChange={(e) => setForm((f) => ({ ...f, min_order_total: e.target.value }))} type="number" step="0.10" className="w-24 text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+          </div>
+          <div>
+            <label className="text-[11px] text-stone-400 block">Usi massimi</label>
+            <input value={form.max_uses} onChange={(e) => setForm((f) => ({ ...f, max_uses: e.target.value }))} type="number" className="w-24 text-sm border border-stone-300 rounded-md px-2 py-1.5" />
+          </div>
+        </div>
+        <button onClick={addCoupon} className="flex items-center gap-1 text-sm font-semibold bg-stone-900 text-white px-3 py-1.5 rounded-md">
+          <Plus className="h-3.5 w-3.5" /> Crea coupon
+        </button>
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-xl divide-y divide-stone-100">
+        {coupons.length === 0 && <div className="text-sm text-stone-400 italic px-4 py-6 text-center">Nessun coupon creato ancora.</div>}
+        {coupons.map((c) => (
+          <div key={c.id} className="flex items-center gap-3 px-4 py-3">
+            <div className="flex-1">
+              <div className="text-sm font-mono font-semibold">{c.code}</div>
+              <div className="text-xs text-stone-400">
+                {c.discount_type === "percent" ? `${c.discount_value}%` : `€${Number(c.discount_value).toFixed(2)}`}
+                {c.min_order_total ? ` · min €${Number(c.min_order_total).toFixed(2)}` : ""}
+                {c.max_uses ? ` · ${c.times_used}/${c.max_uses} usi` : ` · ${c.times_used} usi`}
+                {c.valid_until ? ` · scade ${new Date(c.valid_until).toLocaleDateString("it-IT")}` : ""}
+              </div>
+            </div>
+            <button onClick={() => toggleActive(c)} className={`text-xs font-semibold px-3 py-1.5 rounded-full ${c.active ? "bg-emerald-100 text-emerald-800" : "bg-stone-200 text-stone-500"}`}>
+              {c.active ? "Attivo" : "Disattivo"}
+            </button>
+            <button onClick={() => removeCoupon(c.id)} className="text-stone-300 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

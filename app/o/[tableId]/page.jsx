@@ -38,9 +38,28 @@ function generateTimeSlots(todayHours) {
   return slots;
 }
 
+function isInTimeWindow(from, until) {
+  if (!from && !until) return false;
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const toMin = (t) => { const [h, m] = t.slice(0, 5).split(":").map(Number); return h * 60 + m; };
+  const f = from ? toMin(from) : 0;
+  const u = until ? toMin(until) : 24 * 60;
+  return nowMin >= f && nowMin <= u;
+}
+
+function isHappyHourActive(product) {
+  return product?.happy_price != null && isInTimeWindow(product.happy_from, product.happy_until);
+}
+
+function effectivePrice(product) {
+  if (!product) return 0;
+  return isHappyHourActive(product) ? Number(product.happy_price) : Number(product.price);
+}
+
 function lineUnitPrice(line, product) {
   const optTotal = (line.options || []).reduce((s, o) => s + Number(o.price_delta || 0), 0);
-  return Number(product?.price || 0) + optTotal;
+  return effectivePrice(product) + optTotal;
 }
 
 export default function OrderPage() {
@@ -68,7 +87,12 @@ export default function OrderPage() {
   const [lastOrder, setLastOrder] = useState(null);
   const [reorderDismissed, setReorderDismissed] = useState(false);
   const [customizeProduct, setCustomizeProduct] = useState(null);
-  const [dietFilters, setDietFilters] = useState([]); // es. ["tag_vegetarian", "tag_gluten_free"]
+  const [dietFilters, setDietFilters] = useState([]);
+  const [couponCode, setCouponCode] = useState("");
+  const [couponApplied, setCouponApplied] = useState(null); // { code, discount_amount, message }
+  const [couponError, setCouponError] = useState(null);
+  const [couponChecking, setCouponChecking] = useState(false);
+  const [topProductIds, setTopProductIds] = useState([]);
 
   const timeSlots = useMemo(() => generateTimeSlots(todayHours), [todayHours]);
 
@@ -85,6 +109,8 @@ export default function OrderPage() {
       setAnnouncements((ann || []).filter((a) => a.active));
     }
     loadSettings();
+
+    fetch("/api/top-products").then((r) => r.json()).then((d) => setTopProductIds(d.productIds || [])).catch(() => {});
   }, []);
 
   const orderingStatus = useMemo(() => {
@@ -291,7 +317,39 @@ export default function OrderPage() {
     return s + lineUnitPrice(l, product) * l.qty;
   }, 0);
   const surcharge = mode === "consegna" ? Number(zone?.surcharge || 0) : 0;
-  const total = subtotal + surcharge;
+  const discount = couponApplied?.discount_amount || 0;
+  const total = Math.max(0, subtotal + surcharge - discount);
+
+  async function applyCoupon() {
+    if (!couponCode.trim()) return;
+    setCouponChecking(true);
+    setCouponError(null);
+    try {
+      const res = await fetch("/api/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: couponCode.trim(), subtotal }),
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setCouponApplied({ code: data.code, discount_amount: data.discount_amount, message: data.message });
+        setCouponError(null);
+      } else {
+        setCouponApplied(null);
+        setCouponError(data.message || "Codice non valido");
+      }
+    } catch {
+      setCouponError("Non sono riuscito a verificare il codice.");
+    } finally {
+      setCouponChecking(false);
+    }
+  }
+
+  function removeCoupon() {
+    setCouponApplied(null);
+    setCouponCode("");
+    setCouponError(null);
+  }
 
   function saveCustomer(info) {
     setCustomer(info);
@@ -345,6 +403,8 @@ export default function OrderPage() {
           customer_email: customer.email || null,
           requested_time: requestedIso,
           client_request_id: clientRequestId,
+          coupon_code: couponApplied?.code || null,
+          discount_amount: discount,
         })
         .select()
         .single());
@@ -411,10 +471,20 @@ export default function OrderPage() {
   }
 
   function resetCartAfterSubmit() {
+    if (couponApplied?.code) {
+      fetch("/api/coupons/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: couponApplied.code }),
+      }).catch(() => {});
+    }
     setCartLines([]);
     setNote("");
     setCheckoutOpen(false);
     setClientRequestId(newId());
+    setCouponApplied(null);
+    setCouponCode("");
+    setCouponError(null);
   }
 
   if (loading) return <div className="min-h-screen grid place-items-center text-stone-400 text-sm">Carico il menu…</div>;
@@ -507,6 +577,28 @@ export default function OrderPage() {
         ))}
       </div>
 
+      {topProductIds.length > 0 && (() => {
+        const topProducts = visibleProductsOf(
+          topProductIds.map((id) => products.find((p) => p.id === id)).filter((p) => p && p.available)
+        );
+        if (topProducts.length === 0) return null;
+        return (
+          <div className="mb-7">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2 flex items-center gap-1.5">
+              🔥 I più ordinati di KickOff
+            </h2>
+            <div className="space-y-2">
+              {topProducts.map((p) => (
+                <ProductRow key={p.id} p={p} cartLines={cartLines} addSimple={addSimple} decrementSimple={decrementSimple}
+                  optionGroups={optionGroups[p.id]} onCustomize={() => setCustomizeProduct(p)}
+                  customer={customer} favorites={favorites} toggleFavorite={toggleFavorite}
+                  openNoteFor={openNoteFor} setOpenNoteFor={setOpenNoteFor} setLineNote={setLineNote} />
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {customer && favorites.length > 0 && (() => {
         const favProducts = visibleProductsOf(products.filter((p) => favorites.includes(p.id) && p.available));
         if (favProducts.length === 0) return null;
@@ -580,6 +672,9 @@ export default function OrderPage() {
           onClose={() => setCheckoutOpen(false)}
           onSubmit={handleSubmit}
           submitting={submitting} error={error}
+          couponCode={couponCode} setCouponCode={setCouponCode}
+          couponApplied={couponApplied} applyCoupon={applyCoupon} removeCoupon={removeCoupon}
+          couponError={couponError} couponChecking={couponChecking}
         />
       )}
     </div>
@@ -625,7 +720,15 @@ function ProductRow({ p, cartLines, addSimple, decrementSimple, optionGroups, on
             </div>
             {p.description && <div className="text-xs text-stone-400 truncate">{p.description}</div>}
             <div className="text-xs text-stone-500">
-              €{Number(p.price).toFixed(2)}{hasGroups && <span className="text-stone-400"> +</span>}
+              {isHappyHourActive(p) ? (
+                <span>
+                  <span className="line-through text-stone-300 mr-1">€{Number(p.price).toFixed(2)}</span>
+                  <span className="text-orange-700 font-semibold">€{Number(p.happy_price).toFixed(2)} 🔥</span>
+                </span>
+              ) : (
+                <span>€{Number(p.price).toFixed(2)}</span>
+              )}
+              {hasGroups && <span className="text-stone-400"> +</span>}
               {!p.available && (
                 <span className="ml-2 text-rose-600 font-medium">{p.unavailable_note || "Non disponibile"}</span>
               )}
@@ -718,7 +821,7 @@ function CustomizeSheet({ product, groups, onClose, onAdd }) {
     }
   });
 
-  const unitPrice = Number(product.price) + chosenOptions.reduce((s, o) => s + o.price_delta, 0);
+  const unitPrice = effectivePrice(product) + chosenOptions.reduce((s, o) => s + o.price_delta, 0);
 
   return (
     <div className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center sm:justify-center" onClick={onClose}>
@@ -786,7 +889,7 @@ function CustomizeSheet({ product, groups, onClose, onAdd }) {
 
 // ---------- Checkout ----------
 
-function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTime, setRequestedTime, timeSlots, total, cartLines, products, updateLineQty, removeLine, customer, saveCustomer, onClose, onSubmit, submitting, error }) {
+function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTime, setRequestedTime, timeSlots, total, subtotal, surcharge, cartLines, products, updateLineQty, removeLine, customer, saveCustomer, onClose, onSubmit, submitting, error, couponCode, setCouponCode, couponApplied, applyCoupon, removeCoupon, couponError, couponChecking }) {
   const [form, setForm] = useState(customer || { name: "", email: "", phone: "" });
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
@@ -902,9 +1005,52 @@ function CheckoutSheet({ table, zone, mode, setMode, note, setNote, requestedTim
 
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note generali per il bar" className="w-full mb-4 text-sm border border-stone-300 rounded-lg px-3 py-2" />
 
-            <div className="flex items-center justify-between mb-3 text-sm">
-              <span className="text-stone-500">Totale da pagare {mode === "consegna" ? "alla consegna" : "al ritiro"}</span>
-              <span className="font-bold text-lg tabular-nums">€{total.toFixed(2)}</span>
+            <div className="mb-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-2">Hai un codice sconto?</div>
+              {couponApplied ? (
+                <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  <div className="text-sm text-emerald-800">
+                    <span className="font-mono font-semibold">{couponApplied.code}</span> — {couponApplied.message}
+                  </div>
+                  <button onClick={removeCoupon} className="text-xs font-semibold text-emerald-700">Rimuovi</button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                    placeholder="Es. ESTATE10"
+                    className="flex-1 text-sm border border-stone-300 rounded-lg px-3 py-2 uppercase"
+                  />
+                  <button onClick={applyCoupon} disabled={couponChecking || !couponCode.trim()} className="text-sm font-semibold px-4 rounded-lg bg-stone-900 text-white disabled:opacity-40">
+                    {couponChecking ? "…" : "Applica"}
+                  </button>
+                </div>
+              )}
+              {couponError && <div className="text-rose-600 text-xs mt-1.5">{couponError}</div>}
+            </div>
+
+            <div className="mb-3 text-sm space-y-1">
+              <div className="flex items-center justify-between text-stone-500">
+                <span>Subtotale</span>
+                <span className="tabular-nums">€{subtotal.toFixed(2)}</span>
+              </div>
+              {surcharge > 0 && (
+                <div className="flex items-center justify-between text-stone-500">
+                  <span>Consegna</span>
+                  <span className="tabular-nums">€{surcharge.toFixed(2)}</span>
+                </div>
+              )}
+              {couponApplied && (
+                <div className="flex items-center justify-between text-emerald-700">
+                  <span>Sconto {couponApplied.code}</span>
+                  <span className="tabular-nums">−€{couponApplied.discount_amount.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between font-bold text-base pt-1 border-t border-stone-100">
+                <span>Totale da pagare {mode === "consegna" ? "alla consegna" : "al ritiro"}</span>
+                <span className="tabular-nums">€{total.toFixed(2)}</span>
+              </div>
             </div>
             {error && <div className="text-rose-600 text-xs mb-2">{error}</div>}
             <button disabled={submitting || cartLines.length === 0} onClick={onSubmit} className="w-full bg-orange-700 hover:bg-orange-600 transition rounded-lg py-3 font-semibold text-sm text-white disabled:opacity-50">
